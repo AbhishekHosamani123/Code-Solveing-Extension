@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    body { margin: 0; font-family: 'Segoe UI', system-ui, sans-serif; background: #0f172a; color: #e2e8f0; }
+    .wrap { max-width: 560px; margin: 0 auto; padding: 28px 24px 48px; }
+    h1 { font-size: 18px; color: #c7d2fe; margin: 0 0 4px; }
+    .sub { font-size: 12.5px; color: #94a3b8; margin-bottom: 24px; }
+    .card { background: #1e293b; border: 1px solid #334155; border-radius: 12px; padding: 18px; margin-bottom: 16px; }
+    .card h2 { font-size: 13px; color: #a5b4fc; margin: 0 0 12px; text-transform: uppercase; letter-spacing: .6px; }
+    .field { margin-bottom: 14px; }
+    .field label { display: block; font-size: 12.5px; color: #cbd5e1; margin-bottom: 6px; }
+    .field .hint { font-size: 11px; color: #64748b; margin-top: 5px; line-height: 1.45; }
+    input[type="text"], input[type="password"], select {
+      width: 100%; background: #0f172a; color: #e2e8f0; border: 1px solid #475569;
+      border-radius: 8px; padding: 8px 10px; font-size: 13px; outline: none; box-sizing: border-box;
+    }
+    input:focus, select:focus { border-color: #818cf8; }
+    .inline { display: flex; gap: 8px; align-items: center; }
+    .inline input { flex: 1; }
+    button {
+      background: linear-gradient(135deg, #6366f1, #8b5cf6); color: #fff; border: none;
+      border-radius: 8px; padding: 9px 18px; font-size: 13px; font-weight: 600; cursor: pointer;
+    }
+    button.ghost { background: #334155; font-weight: 500; }
+    button:hover { filter: brightness(1.1); }
+    .switch { position: relative; width: 36px; height: 20px; flex: none; display: inline-block; }
+    .switch input { opacity: 0; width: 0; height: 0; }
+    .slider { position: absolute; inset: 0; background: #475569; border-radius: 999px; cursor: pointer; transition: .2s; }
+    .slider:before { content: ""; position: absolute; width: 14px; height: 14px; left: 3px; top: 3px; background: #fff; border-radius: 50%; transition: .2s; }
+    input:checked + .slider { background: #6366f1; }
+    input:checked + .slider:before { transform: translateX(16px); }
+    .togglerow { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; font-size: 13px; color: #cbd5e1; }
+    .status { font-size: 12px; margin-top: 10px; line-height: 1.5; }
+    .status.ok { color: #4ade80; }
+    .status.err { color: #f87171; }
+    .saved { color: #4ade80; font-size: 12.5px; margin-left: 12px; opacity: 0; transition: opacity .3s; }
+    .saved.show { opacity: 1; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>⚡ CodeSolve AI — Options</h1>
+    <div class="sub">A floating chatbot on every page — powered by Groq. It reads the page, answers instantly, and can type solutions into the editor.</div>
+
+    <div class="card">
+      <h2>Groq account</h2>
+      <div class="field">
+        <label for="apiKey">API key</label>
+        <div class="inline">
+          <input type="password" id="apiKey" placeholder="gsk_..." autocomplete="off">
+          <button id="toggleKey" class="ghost" style="padding: 8px 12px;">Show</button>
+          <button id="testKey">Test</button>
+        </div>
+        <div class="hint">Required — get a free key at console.groq.com/keys. Stored only in this browser (chrome.storage.local), never in the source code.</div>
+        <div class="status" id="keyStatus"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Solving</h2>
+      <div class="field">
+        <label for="model">Model</label>
+        <div class="inline">
+          <select id="model"></select>
+          <input type="text" id="modelCustom" placeholder="custom model id" style="display:none;">
+        </div>
+        <div class="hint">Falls back automatically to the next available model when rate-limited.</div>
+      </div>
+      <div class="field">
+        <label for="language">Default language</label>
+        <select id="language"></select>
+      </div>
+      <div class="field">
+        <label for="speed">Typing speed</label>
+        <select id="speed">
+          <option value="slow">Slow — very human pace</option>
+          <option value="normal">Normal — balanced</option>
+          <option value="fast">Fast — quick but still typed</option>
+        </select>
+        <div class="hint">Used whenever the solution is typed into the page's editor.</div>
+      </div>
+      <div class="togglerow">
+        <span>Self-check pass (trace samples &amp; fix bugs)</span>
+        <span class="switch"><input type="checkbox" id="verify"><span class="slider"></span></span>
+      </div>
+      <div class="togglerow">
+        <span>Human typos with Backspace corrections</span>
+        <span class="switch"><input type="checkbox" id="typos"><span class="slider"></span></span>
+      </div>
+      <div class="togglerow" style="margin-bottom:0;">
+        <span>Show the chatbot on all pages</span>
+        <span class="switch"><input type="checkbox" id="enabled"><span class="slider"></span></span>
+      </div>
+    </div>
+
+    <div>
+      <button id="save">Save</button><span class="saved" id="saved">Saved ✓</span>
+    </div>
+  </div>
+
+  <script src="config.js"></script>
+  <script src="options.js"></script>
+</body>
+</html>

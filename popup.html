@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    body { width: 240px; margin: 0; font-family: 'Segoe UI', system-ui, sans-serif; background: #0f172a; color: #e2e8f0; }
+    .head { display: flex; align-items: center; gap: 8px; padding: 12px 14px; border-bottom: 1px solid #334155; }
+    .head h1 { font-size: 14px; margin: 0; color: #c7d2fe; }
+    .row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 14px; font-size: 12.5px; }
+    .row label { color: #cbd5e1; }
+    .switch { position: relative; width: 36px; height: 20px; flex: none; }
+    .switch input { opacity: 0; width: 0; height: 0; }
+    .slider { position: absolute; inset: 0; background: #475569; border-radius: 999px; cursor: pointer; transition: .2s; }
+    .slider:before { content: ""; position: absolute; width: 14px; height: 14px; left: 3px; top: 3px; background: #fff; border-radius: 50%; transition: .2s; }
+    input:checked + .slider { background: #6366f1; }
+    input:checked + .slider:before { transform: translateX(16px); }
+    .actions { display: flex; gap: 8px; padding: 4px 14px 14px; }
+    button {
+      flex: 1; background: linear-gradient(135deg, #6366f1, #8b5cf6); color: #fff;
+      border: none; border-radius: 8px; padding: 8px 0; font-size: 12.5px; font-weight: 600; cursor: pointer;
+    }
+    button.ghost { background: #334155; font-weight: 500; }
+    button:hover { filter: brightness(1.1); }
+    .note { padding: 0 14px 12px; font-size: 10.5px; color: #64748b; line-height: 1.4; }
+  </style>
+</head>
+<body>
+  <div class="head">⚡ <h1>CodeSolve Chat</h1></div>
+  <div class="row">
+    <label for="enabled">Show on all pages</label>
+    <span class="switch"><input type="checkbox" id="enabled"><span class="slider"></span></span>
+  </div>
+  <div class="actions">
+    <button id="show">💬 Open chat here</button>
+    <button id="options" class="ghost">Options</button>
+  </div>
+  <div class="note">The chatbot reads this page automatically — just ask. Drag it anywhere, resize from the corner, minimize to a bubble.</div>
+  <script src="popup.js"></script>
+</body>
+</html>

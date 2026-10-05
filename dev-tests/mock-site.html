@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Sum of Two Numbers | MockCode</title>
+<style>
+  body { font-family: 'Segoe UI', system-ui, sans-serif; max-width: 900px; margin: 30px auto; color: #e2e8f0; background: #0f172a; }
+  .problem-statement { background: #1e293b; border: 1px solid #334155; border-radius: 10px; padding: 16px 20px; line-height: 1.6; }
+  #editor-host { border: 1px solid #334155; border-radius: 8px; background: #0b1120; min-height: 260px; }
+  .cm-editor { outline: none; }
+  .cm-content { font-family: Consolas, monospace; font-size: 14px; line-height: 1.5; padding: 8px 0; white-space: pre; }
+  .cm-line { min-height: 1.5em; padding: 0 12px; }
+  .cm-line.cm-activeLine { background: #1e293b; }
+  .cm-editor.cm-focused { outline: 1px solid #818cf8; }
+</style>
+</head>
+<body>
+  <h1>Sum of Two Numbers</h1>
+
+  <section class="problem-statement">
+    <p>
+      You are given two integers <b>a</b> and <b>b</b>. Print their sum.
+      The input contains a single line with two integers <b>a</b> and <b>b</b> separated by a space
+      (0 &lt;= a, b &lt;= 1,000,000,000). The output must contain exactly one integer: the sum of a and b.
+    </p>
+    <p><b>Example 1.</b> Input: <code>3 4</code>. Output: <code>7</code>.</p>
+    <p><b>Example 2.</b> Input: <code>0 0</code>. Output: <code>0</code>.</p>
+    <p><b>Example 3.</b> Input: <code>1000000000 1000000000</code>. Output: <code>2000000000</code>.</p>
+    <p><b>Constraints.</b> 0 &lt;= a, b &lt;= 10^9. Time limit: 1 second. The answer always fits in a 64-bit integer.</p>
+  </section>
+
+  <h2>Your code</h2>
+  <div id="editor-host"></div>
+
+  <script type="module">
+    const params = new URLSearchParams(location.search);
+    const want = params.get('editor') || 'auto';          // auto | cm6 | mini
+    const autoIndent = params.get('autoindent') === '1';  // mini-editor: mimic Monaco's Enter auto-indent
+
+    // ------------------------------------------------ real CodeMirror 6 (if network allows)
+    async function tryRealCM6() {
+      if (want === 'mini') return false;
+      try {
+        const mod = await import('https://esm.sh/codemirror@6.0.1?bundle');
+        const view = new mod.EditorView({
+          doc: '',
+          parent: document.getElementById('editor-host'),
+          extensions: [mod.basicSetup]
+        });
+        window.__mockEditor = {
+          kind: 'cm6-real',
+          getValue: () => view.state.doc.toString(),
+          setValue: t => view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: t } })
+        };
+        return true;
+      } catch (e) {
+        console.warn('CM6 CDN unavailable, using mini editor:', e && e.message);
+        return false;
+      }
+    }
+
+    // ------------------------------------------------ mini CM6-like editor (offline fallback)
+    // Mirrors the parts of CodeMirror 6 the typer relies on: .cm-content
+    // contenteditable, one .cm-line div per line, .cm-activeLine tracking,
+    // DOM-mutation-driven state, synthetic Ctrl+A and Backspace handling.
+    function buildMiniEditor() {
+      const content = document.createElement('div');
+      content.className = 'cm-content cm-focused';
+      content.contentEditable = 'true';
+      content.setAttribute('role', 'textbox');
+      content.setAttribute('spellcheck', 'false');
+      const root = document.createElement('div');
+      root.className = 'cm-editor';
+      root.appendChild(content);
+      document.getElementById('editor-host').appendChild(root);
+
+      // Serialize the (possibly messy) DOM under `node` into text, treating
+      // block elements and <br> as line breaks and keeping literal '\n's.
+      function serialize(node) {
+        let out = '';
+        node.childNodes.forEach(n => {
+          if (n.nodeType === 3) out += n.nodeValue;
+          else if (n.nodeType !== 1) { /* skip */ }
+          else if (n.tagName === 'BR') out += '\n';
+          else if (n.tagName === 'DIV' || n.tagName === 'P') out += (out ? '\n' : '') + serialize(n);
+          else out += serialize(n);
+        });
+        return out;
+      }
+
+      function readLines() {
+        return serialize(content).replace(/\r/g, '').split('\n');
+      }
+
+      function caretOffset() {
+        const sel = getSelection();
+        if (!sel.rangeCount || !content.contains(sel.anchorNode)) return null;
+        const pre = document.createRange();
+        pre.selectNodeContents(content);
+        try { pre.setEnd(sel.getRangeAt(0).startContainer, sel.getRangeAt(0).startOffset); }
+        catch { return null; }
+        return serialize(pre.cloneContents()).length;
+      }
+
+      function caretFromOffset(off, lines) {
+        let i = 0;
+        for (let l = 0; l < lines.length; l++) {
+          if (off <= i + lines[l].length) return { line: l, col: off - i };
+          i += lines[l].length + 1;
+        }
+        return { line: lines.length - 1, col: lines[lines.length - 1].length };
+      }
+
+      function offsetFromCaret(pos, lines) {
+        let i = 0;
+        for (let l = 0; l < pos.line; l++) i += lines[l].length + 1;
+        return i + pos.col;
+      }
+
+      function markActive(line) {
+        Array.from(content.children).forEach((el, i) => {
+          el.classList.toggle('cm-activeLine', i === line);
+        });
+      }
+
+      function setCaret(pos) {
+        const lineEl = content.children[Math.min(pos.line, content.children.length - 1)];
+        if (!lineEl) return;
+        const r = document.createRange();
+        const tn = lineEl.firstChild;
+        if (tn && tn.nodeType === 3) r.setStart(tn, Math.min(pos.col, tn.length));
+        else r.setStart(lineEl, 0);
+        r.collapse(true);
+        const sel = getSelection();
+        sel.removeAllRanges();
+        sel.addRange(r);
+      }
+
+      function render(lines, caret) {
+        content.textContent = '';
+        for (const t of lines) {
+          const d = document.createElement('div');
+          d.className = 'cm-line';
+          d.textContent = t;
+          content.appendChild(d);
+        }
+        markActive(caret ? caret.line : 0);
+        if (caret) setCaret(caret);
+      }
+
+      // Rebuild the model from whatever the browser just did to the DOM
+      // (execCommand edits, manual node inserts), then normalize.
+      function normalize(lineBreakEvent) {
+        const off = caretOffset();
+        let lines = readLines();
+        let caret = off == null ? { line: lines.length - 1, col: lines[lines.length - 1].length } : caretFromOffset(off, lines);
+        if (autoIndent && lineBreakEvent && caret && caret.col === 0 && caret.line > 0 && lines[caret.line] === '') {
+          const prevIndent = (lines[caret.line - 1].match(/^[ \t]*/) || [''])[0];
+          lines[caret.line] = prevIndent;
+          caret = { line: caret.line, col: prevIndent.length };
+        }
+        render(lines, caret);
+      }
+
+      function isLineBreakEvent(e) {
+        return e && (e.inputType === 'insertLineBreak' || e.inputType === 'insertParagraph' ||
+          (e.inputType === 'insertText' && e.data && e.data.includes('\n')));
+      }
+
+      content.addEventListener('input', e => normalize(isLineBreakEvent(e)));
+
+      document.addEventListener('selectionchange', () => {
+        if (!content.contains(getSelection().anchorNode)) return;
+        const off = caretOffset();
+        if (off == null) return;
+        markActive(caretFromOffset(off, readLines()).line);
+      });
+
+      content.addEventListener('keydown', e => {
+        if ((e.ctrlKey || e.metaKey) && (e.key === 'a' || e.key === 'A')) {
+          e.preventDefault();
+          const r = document.createRange();
+          r.selectNodeContents(content);
+          const sel = getSelection();
+          sel.removeAllRanges();
+          sel.addRange(r);
+        } else if (e.key === 'Backspace') {
+          e.preventDefault();
+          const off = caretOffset();
+          const lines = readLines();
+          if (off == null) return;
+          const pos = caretFromOffset(off, lines);
+          if (pos.col > 0) {
+            lines[pos.line] = lines[pos.line].slice(0, pos.col - 1) + lines[pos.line].slice(pos.col);
+            render(lines, { line: pos.line, col: pos.col - 1 });
+          } else if (pos.line > 0) {
+            const prevLen = lines[pos.line - 1].length;
+            lines[pos.line - 1] += lines[pos.line];
+            lines.splice(pos.line, 1);
+            render(lines, { line: pos.line - 1, col: prevLen });
+          }
+        }
+      });
+
+      render([''], { line: 0, col: 0 });
+
+      window.__mockEditor = {
+        kind: 'mini',
+        getValue: () => serialize(content),
+        setValue: t => {
+          const lines = String(t).replace(/\r/g, '').split('\n');
+          render(lines, { line: lines.length - 1, col: lines[lines.length - 1].length });
+        }
+      };
+    }
+
+    const ok = await tryRealCM6();
+    if (!ok) buildMiniEditor();
+    window.__mockReady = true;
+    window.__mockAutoIndent = autoIndent;
+  </script>
+</body>
+</html>
