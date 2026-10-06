@@ -432,124 +432,156 @@
     .hidden { display: none !important; }
 
     .bubble {
-      position: fixed; width: 52px; height: 52px; border-radius: 50%;
+      position: fixed; width: 54px; height: 54px; border-radius: 50%;
       background: linear-gradient(135deg, #6366f1, #8b5cf6);
       color: #fff; font-size: 24px; display: flex; align-items: center; justify-content: center;
-      cursor: pointer; user-select: none; box-shadow: 0 8px 28px rgba(99, 102, 241, .5);
-      z-index: 2147483647;
+      cursor: pointer; user-select: none;
+      box-shadow: 0 6px 16px rgba(79, 70, 229, .45), 0 16px 40px rgba(79, 70, 229, .35);
+      z-index: 2147483647; transition: transform .15s ease, box-shadow .15s ease;
     }
-    .bubble:hover { filter: brightness(1.1); }
+    .bubble:hover { transform: scale(1.07); box-shadow: 0 8px 20px rgba(79, 70, 229, .55), 0 20px 48px rgba(79, 70, 229, .4); }
 
     .chatcard {
       position: fixed; display: flex; flex-direction: column;
-      background: #0f172a; color: #e2e8f0;
-      border: 1px solid #334155; border-radius: 14px;
-      box-shadow: 0 24px 60px rgba(0, 0, 0, .55);
+      background: linear-gradient(180deg, #111a2e 0%, #0c1425 100%);
+      color: #e2e8f0; font-size: calc(16px * var(--fs, 1));
+      border: 1px solid #2b3a58; border-radius: 16px;
+      box-shadow: 0 10px 24px rgba(2, 8, 23, .5), 0 32px 80px rgba(2, 8, 23, .5);
       overflow: hidden; z-index: 2147483647;
+      animation: cardIn .16s ease;
     }
+    @keyframes cardIn { from { opacity: 0; transform: translateY(8px) scale(.985); } }
+
     .head {
-      display: flex; align-items: center; gap: 8px; flex: none;
-      padding: 10px 12px; background: #1e293b; border-bottom: 1px solid #334155;
-      cursor: grab; touch-action: none;
+      display: flex; align-items: center; gap: 7px; flex: none;
+      padding: 10px 12px; cursor: grab; touch-action: none;
+      background: linear-gradient(180deg, #182442, #141f38);
+      border-bottom: 1px solid #27385a;
     }
     .head.dragging { cursor: grabbing; }
-    .dot { width: 9px; height: 9px; flex: none; border-radius: 50%;
-           background: linear-gradient(135deg, #6366f1, #8b5cf6); }
-    .brand { font-weight: 700; font-size: 16px; color: #c7d2fe; white-space: nowrap; }
+    .dot { width: 10px; height: 10px; flex: none; border-radius: 50%;
+           background: linear-gradient(135deg, #818cf8, #a78bfa);
+           box-shadow: 0 0 10px rgba(129, 140, 248, .8); }
+    .brand { font-weight: 700; font-size: 1em; color: #dfe4ff; white-space: nowrap; letter-spacing: .2px; }
     .spacer { flex: 1; }
     .hbtn {
-      background: none; border: none; color: #94a3b8; cursor: pointer;
-      font-size: 16px; padding: 2px 7px; border-radius: 6px; line-height: 1;
+      background: transparent; border: none; color: #8fa0bd; cursor: pointer;
+      font-size: .98em; padding: 3px 7px; border-radius: 8px; line-height: 1.2;
+      transition: background .12s ease, color .12s ease;
     }
-    .hbtn:hover { background: #334155; color: #e2e8f0; }
+    .hbtn:hover { background: rgba(129, 140, 248, .16); color: #e2e8f0; }
     .hbtn.on { color: #a5b4fc; }
+    .hbtn.fminus, .hbtn.fplus { font-size: .74em; font-weight: 700; min-width: 25px; padding: 4px 5px; }
     .priv {
-      font-size: 12.5px; color: #4ade80; background: #052e16;
+      font-size: .76em; color: #4ade80; background: rgba(5, 46, 22, .9);
       border: 1px solid #166534; border-radius: 999px;
       padding: 2px 9px; white-space: nowrap;
     }
 
     .msgs {
-      flex: 1; overflow-y: auto; padding: 12px 12px 6px;
-      display: flex; flex-direction: column; gap: 9px; min-height: 0;
+      flex: 1; overflow-y: auto; padding: 14px 13px 8px;
+      display: flex; flex-direction: column; gap: 10px; min-height: 0;
     }
-    .empty { color: #64748b; font-size: 15px; font-style: italic; padding: 6px 2px; line-height: 1.5; }
+    .msgs::-webkit-scrollbar { width: 8px; }
+    .msgs::-webkit-scrollbar-track { background: transparent; }
+    .msgs::-webkit-scrollbar-thumb { background: #2b3a58; border-radius: 8px; }
+    .msgs::-webkit-scrollbar-thumb:hover { background: #3c5078; }
+    .empty { color: #64748b; font-size: .94em; padding: 8px 4px; line-height: 1.6; }
     .msg {
-      max-width: 92%; padding: 10px 13px; border-radius: 10px;
-      font-size: 16px; line-height: 1.55; white-space: pre-wrap; word-break: break-word;
+      max-width: 90%; padding: 10px 14px; border-radius: 14px;
+      font-size: 1em; line-height: 1.6; white-space: pre-wrap; word-break: break-word;
     }
-    .msg.user { align-self: flex-end; background: #4338ca; color: #eef2ff; border-bottom-right-radius: 3px; }
-    .msg.ai { align-self: flex-start; background: #1e293b; color: #e2e8f0; border-bottom-left-radius: 3px; max-width: 100%; }
-    .msg.ai.err { background: #450a0a; color: #fecaca; }
+    .msg.user {
+      align-self: flex-end; color: #fff; border-bottom-right-radius: 4px;
+      background: linear-gradient(135deg, #4f46e5, #7c3aed);
+      box-shadow: 0 4px 14px rgba(79, 70, 229, .28);
+    }
+    .msg.ai {
+      align-self: flex-start; background: #17203a; border: 1px solid #263450;
+      color: #e2e8f0; border-bottom-left-radius: 4px; max-width: 100%;
+    }
+    .msg.ai.err { background: #331414; border-color: #7f1d1d; color: #fecaca; }
     .msg.ai.thinking { color: #94a3b8; font-style: italic; }
     .msg .mtext { white-space: pre-wrap; }
-    .msg .mtext b { color: #f1f5f9; }
+    .msg .mtext b { color: #f8fafc; }
     .msg .mtext code.inline {
-      background: #020617; border: 1px solid #1e293b; border-radius: 4px;
-      padding: 0 4px; font-family: Consolas, monospace; font-size: 13.5px;
+      background: #0b1120; border: 1px solid #263450; border-radius: 4px;
+      padding: 0 5px; font-family: Consolas, 'JetBrains Mono', monospace; font-size: .85em;
     }
-    .cursor { display: inline-block; width: 7px; height: 13px; background: #818cf8;
+    .cursor { display: inline-block; width: 7px; height: .95em; background: #818cf8;
               vertical-align: text-bottom; animation: blink 1s steps(1) infinite; }
     @keyframes blink { 50% { opacity: 0; } }
 
-    .codeblock { margin: 8px 0 2px; border: 1px solid #1e293b; border-radius: 8px; overflow: hidden; }
-    .codeblock .cbhead {
-      display: flex; align-items: center; gap: 6px;
-      background: #020617; padding: 4px 8px; border-bottom: 1px solid #1e293b;
+    .codeblock {
+      margin: 10px 0 2px; border: 1px solid #263450; border-radius: 10px;
+      overflow: hidden; background: #0b1120;
     }
-    .codeblock .lang { font-size: 12.5px; color: #818cf8; font-weight: 600; text-transform: uppercase; }
+    .codeblock .cbhead {
+      display: flex; align-items: center; gap: 8px;
+      background: #0e1628; padding: 5px 10px; border-bottom: 1px solid #1f2d4a;
+    }
+    .codeblock .lang { font-size: .76em; color: #818cf8; font-weight: 700; text-transform: uppercase; letter-spacing: .6px; }
     .codeblock .spacer { flex: 1; }
     .codeblock button {
-      background: #1e293b; color: #cbd5e1; border: none; border-radius: 5px;
-      font-size: 13px; padding: 3px 10px; cursor: pointer;
+      background: #1d2a45; color: #cbd5e1; border: 1px solid #2b3a58; border-radius: 6px;
+      font-size: .8em; padding: 3px 10px; cursor: pointer;
+      transition: background .12s ease, border-color .12s ease;
     }
-    .codeblock button:hover { background: #334155; }
+    .codeblock button:hover { background: #28375c; border-color: #818cf8; }
     .codeblock pre {
-      background: #020617; padding: 11px; overflow: auto; max-height: 280px;
-      font-family: Consolas, 'JetBrains Mono', monospace; font-size: 15px;
-      line-height: 1.55; white-space: pre; color: #e2e8f0; tab-size: 4;
+      padding: 12px; overflow: auto; max-height: 300px; margin: 0;
+      font-family: Consolas, 'JetBrains Mono', monospace; font-size: .94em;
+      line-height: 1.55; white-space: pre; color: #dbe4f5; tab-size: 4;
     }
-    .typestatus { display: flex; align-items: center; gap: 8px; margin: 4px 0 2px;
-                  font-size: 13px; color: #94a3b8; }
-    .typestatus .bar { flex: 1; height: 5px; background: #020617; border-radius: 999px; overflow: hidden; }
+    .typestatus { display: flex; align-items: center; gap: 8px; margin: 5px 0 2px;
+                  font-size: .82em; color: #94a3b8; }
+    .typestatus .bar { flex: 1; height: 5px; background: #0b1120; border-radius: 999px; overflow: hidden; }
     .typestatus .fill { height: 100%; width: 0%; background: linear-gradient(90deg, #6366f1, #8b5cf6); transition: width .25s ease; }
     .typestatus button {
-      flex: none; background: #7f1d1d; color: #fecaca; border: none; border-radius: 5px;
-      font-size: 12.5px; padding: 2px 10px; cursor: pointer;
+      flex: none; background: #7f1d1d; color: #fecaca; border: none; border-radius: 6px;
+      font-size: .78em; padding: 3px 10px; cursor: pointer;
     }
-    .verdict { font-size: 13.5px; margin-top: 6px; color: #86efac; }
+    .verdict { font-size: .85em; margin-top: 6px; color: #86efac; }
     .verdict.warn { color: #fbbf24; }
 
-    .chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 6px 12px; flex: none; }
+    .chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 13px 4px; flex: none; }
     .chip {
-      background: #0f172a; color: #a5b4fc; border: 1px solid #475569; border-radius: 999px;
-      font-size: 13.5px; padding: 5px 13px; cursor: pointer;
+      background: rgba(129, 140, 248, .09); color: #b4c0f8;
+      border: 1px solid #3a4a6b; border-radius: 999px;
+      font-size: .85em; padding: 5px 13px; cursor: pointer;
+      transition: background .12s ease, border-color .12s ease, transform .12s ease;
     }
-    .chip:hover { border-color: #818cf8; }
+    .chip:hover { border-color: #818cf8; background: rgba(129, 140, 248, .18); transform: translateY(-1px); }
 
-    .inputrow { display: flex; gap: 7px; padding: 6px 12px 12px; flex: none; align-items: flex-end; }
+    .inputrow { display: flex; gap: 8px; padding: 8px 13px 13px; flex: none; align-items: flex-end; }
     .chatinput {
-      flex: 1; background: #020617; color: #e2e8f0; border: 1px solid #475569;
-      border-radius: 9px; padding: 9px 11px; font-size: 16px; outline: none;
-      font-family: inherit; resize: none; max-height: 130px; line-height: 1.45;
+      flex: 1; background: #0b1120; color: #e2e8f0; border: 1px solid #33456a;
+      border-radius: 11px; padding: 10px 12px; font-size: 1em; outline: none;
+      font-family: inherit; resize: none; max-height: 140px; line-height: 1.5;
+      transition: border-color .12s ease, box-shadow .12s ease;
     }
-    .chatinput:focus { border-color: #818cf8; }
+    .chatinput:focus { border-color: #818cf8; box-shadow: 0 0 0 3px rgba(129, 140, 248, .15); }
     .send {
-      flex: none; width: 40px; height: 40px; border: none; border-radius: 9px;
+      flex: none; width: 42px; height: 42px; border: none; border-radius: 11px;
       background: linear-gradient(135deg, #6366f1, #8b5cf6); color: #fff;
-      font-size: 17px; cursor: pointer;
+      font-size: 1.05em; cursor: pointer;
+      transition: transform .12s ease, filter .12s ease;
     }
-    .send:hover { filter: brightness(1.12); }
-    .send[disabled] { opacity: .5; cursor: default; }
+    .send:hover { filter: brightness(1.15); transform: scale(1.05); }
+    .send[disabled] { opacity: .5; cursor: default; transform: none; }
 
-    .grip {
-      position: absolute; right: 2px; bottom: 2px; width: 16px; height: 16px;
-      cursor: nwse-resize; touch-action: none;
+    /* Window-style resize: right edge, bottom edge, and corner. */
+    .rs { position: absolute; z-index: 9; touch-action: none; }
+    .rs-r { top: 0; right: 0; bottom: 0; width: 9px; cursor: ew-resize; }
+    .rs-b { left: 0; right: 0; bottom: 0; height: 9px; cursor: ns-resize; }
+    .rs-c {
+      right: 0; bottom: 0; width: 20px; height: 20px; cursor: nwse-resize;
       background:
-        linear-gradient(135deg, transparent 0 50%, #475569 50% 58%, transparent 58% 66%,
-        #475569 66% 74%, transparent 74% 82%, #475569 82% 90%, transparent 90%);
-      z-index: 5;
+        linear-gradient(135deg, transparent 0 50%, #64748b 50% 58%, transparent 58% 66%,
+        #64748b 66% 74%, transparent 74% 82%, #64748b 82% 90%, transparent 90%);
+      border-bottom-right-radius: 14px;
     }
+    .rs:hover { background-color: rgba(129, 140, 248, .16); }
   `;
 
   let ui = null;
@@ -696,6 +728,7 @@
         window.removeEventListener('pointermove', move);
         window.removeEventListener('pointerup', up);
         window.removeEventListener('pointercancel', up);
+        maximized = false;
         setTimeout(() => { handle.__justDragged = false; }, 0);
         if (onEnd) onEnd();
       };
@@ -705,30 +738,75 @@
     });
   }
 
-  function makeResizable(grip, target, onEnd) {
-    grip.addEventListener('pointerdown', e => {
-      if (floated) return; // the private window's own resize handler fits the card
+  function makeResizable(handle, target, axes, onEnd) {
+    handle.addEventListener('pointerdown', e => {
       e.preventDefault();
       e.stopPropagation();
       const startX = e.clientX, startY = e.clientY;
       const origW = target.offsetWidth, origH = target.offsetHeight;
+      const pip = floated ? pipWindow : null; // float mode: resize the OS window
       const move = ev => {
-        const w = Math.min(Math.max(origW + ev.clientX - startX, MIN_W), window.innerWidth - 16);
-        const h = Math.min(Math.max(origH + ev.clientY - startY, MIN_H), window.innerHeight - 16);
-        target.style.width = w + 'px';
-        target.style.height = h + 'px';
-        syncExcludeBox();
+        let w = origW + (axes.x ? ev.clientX - startX : 0);
+        let h = origH + (axes.y ? ev.clientY - startY : 0);
+        const maxW = pip ? 2400 : window.innerWidth - 16;
+        const maxH = pip ? 1600 : window.innerHeight - 16;
+        w = Math.min(Math.max(w, MIN_W), maxW);
+        h = Math.min(Math.max(h, MIN_H), maxH);
+        if (pip) {
+          // The card auto-fills the private window via its resize listener.
+          try { pip.resizeTo(Math.round(w), Math.round(h)); } catch { /* ignore */ }
+        } else {
+          target.style.width = w + 'px';
+          target.style.height = h + 'px';
+          syncExcludeBox();
+        }
       };
       const up = () => {
         window.removeEventListener('pointermove', move);
         window.removeEventListener('pointerup', up);
         window.removeEventListener('pointercancel', up);
-        if (onEnd) onEnd();
+        maximized = false;
+        if (!pip && onEnd) onEnd();
       };
       window.addEventListener('pointermove', move);
       window.addEventListener('pointerup', up);
       window.addEventListener('pointercancel', up);
     });
+  }
+
+  // ---- Font scale (A− / A+) ------------------------------------------------
+
+  const FONT_STEPS = [0.85, 1, 1.15, 1.3, 1.5];
+  let fontScaleIdx = 1;
+
+  function applyFontScale() {
+    if (!ui) return;
+    ui.card.style.setProperty('--fs', String(FONT_STEPS[fontScaleIdx]));
+    try { chrome.storage.local.set({ csFontScale: fontScaleIdx }); } catch { /* ignore */ }
+  }
+
+  // ---- Maximize (double-click the header) -----------------------------------
+
+  let preMaxGeo = null;
+  let maximized = false;
+
+  function toggleMaximize() {
+    ensureUI();
+    if (maximized && preMaxGeo) {
+      applyGeometry(preMaxGeo);
+      maximized = false;
+    } else {
+      preMaxGeo = {
+        x: ui.card.offsetLeft, y: ui.card.offsetTop,
+        w: ui.card.offsetWidth, h: ui.card.offsetHeight, min: false
+      };
+      applyGeometry({
+        x: 8, y: 8,
+        w: window.innerWidth - 16, h: window.innerHeight - 16, min: false
+      });
+      maximized = true;
+    }
+    saveGeometry();
   }
 
   function ensureUI() {
@@ -756,6 +834,8 @@
         <span class="brand">CodeSolve</span>
         <span class="priv hidden" title="This chat is being cut out of the active screen share">🛡 hidden from share</span>
         <span class="spacer"></span>
+        <button class="hbtn fminus" title="Smaller text">A−</button>
+        <button class="hbtn fplus" title="Larger text">A+</button>
         <button class="hbtn ctx on" title="Include this page's content in every answer">📄</button>
         <button class="hbtn floatb" title="Float in a private always-on-top window — invisible when you share this tab or window">🪟</button>
         <button class="hbtn scr hidden" title="Move this window to your other screen">⇄</button>
@@ -774,7 +854,9 @@
         <textarea class="chatinput" rows="1" placeholder="Ask about this page…"></textarea>
         <button class="send" title="Send">➤</button>
       </div>
-      <div class="grip" title="Resize"></div>
+      <div class="rs rs-r" title="Drag to resize — width"></div>
+      <div class="rs rs-b" title="Drag to resize — height"></div>
+      <div class="rs rs-c" title="Drag to resize"></div>
     `;
 
     shadow.appendChild(bubble);
@@ -800,19 +882,33 @@
       floatBtn: card.querySelector('.floatb'),
       scrBtn: card.querySelector('.scr'),
       minBtn: card.querySelector('.minb'),
+      fminus: card.querySelector('.fminus'),
+      fplus: card.querySelector('.fplus'),
       msgs: card.querySelector('.msgs'),
       chips: card.querySelector('.chips'),
       input: card.querySelector('.chatinput'),
       sendBtn: card.querySelector('.send'),
-      grip: card.querySelector('.grip'),
+      rsR: card.querySelector('.rs-r'),
+      rsB: card.querySelector('.rs-b'),
+      rsC: card.querySelector('.rs-c'),
       lastW: 400, lastH: 560
     };
 
     makeDraggable(ui.head, () => ui.card, saveGeometry);
     makeDraggable(ui.bubble, () => ui.bubble, saveGeometry);
-    makeResizable(ui.grip, ui.card, saveGeometry);
+    makeResizable(ui.rsR, ui.card, { x: true, y: false }, saveGeometry);
+    makeResizable(ui.rsB, ui.card, { x: false, y: true }, saveGeometry);
+    makeResizable(ui.rsC, ui.card, { x: true, y: true }, saveGeometry);
+    applyFontScale();
+
+    ui.head.addEventListener('dblclick', e => {
+      if (floated || e.target.closest('button')) return;
+      toggleMaximize();
+    });
 
     ui.floatBtn.addEventListener('click', () => (floated ? closeFloat(false) : floatWidget()));
+    ui.fminus.addEventListener('click', () => { fontScaleIdx = Math.max(0, fontScaleIdx - 1); applyFontScale(); });
+    ui.fplus.addEventListener('click', () => { fontScaleIdx = Math.min(FONT_STEPS.length - 1, fontScaleIdx + 1); applyFontScale(); });
     ui.scrBtn.addEventListener('click', () => moveToOtherScreen());
     ui.minBtn.addEventListener('click', () => {
       if (floated) { closeFloat(true); return; } // minimize lands back on the page
@@ -1476,6 +1572,9 @@
     if (!IS_TOP) return; // frames only participate in the context handshake
     const settings = await new Promise(resolve => chrome.storage.local.get(null, s => resolve(s || {})));
     if (typeof settings.csIncludePage === 'boolean') includePage = settings.csIncludePage;
+    if (Number.isInteger(settings.csFontScale)) {
+      fontScaleIdx = Math.min(FONT_STEPS.length - 1, Math.max(0, settings.csFontScale));
+    }
     setEnabled(settings.enabled !== false);
 
     const geo = await loadGeometry();
