@@ -14,7 +14,13 @@ function send(msg) {
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
-  const settings = await storageGet();
+  // Effective settings (defaults + any git-ignored local key) from the
+  // background; fall back to raw storage if the worker isn't reachable.
+  let settings = await storageGet();
+  try {
+    const resp = await send({ type: 'GET_SETTINGS' });
+    if (resp && resp.ok && resp.settings) settings = resp.settings;
+  } catch { /* raw storage is fine */ }
 
   const modelSelect = $('model');
   const modelCustom = $('modelCustom');

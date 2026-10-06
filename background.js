@@ -1,6 +1,29 @@
+// secrets.js (git-ignored) can hold a personal API key so the extension works
+// out of the box locally without committing any secret to the repository.
+try { importScripts('secrets.js'); } catch { /* no local override */ }
+
 importScripts('config.js');
 
 const CFG = globalThis.CODESOLVE_CONFIG;
+
+const DEFAULTS = {
+  enabled: CFG.DEFAULT_ENABLED,
+  apiKey: globalThis.CS_LOCAL_API_KEY || CFG.DEFAULT_API_KEY,
+  model: CFG.DEFAULT_MODEL,
+  language: CFG.DEFAULT_LANGUAGE,
+  typingSpeed: CFG.DEFAULT_TYPING_SPEED,
+  verify: CFG.DEFAULT_VERIFY
+};
+
+async function getSettings() {
+  return new Promise(resolve => {
+    chrome.storage.local.get(null, stored => {
+      const s = { ...DEFAULTS, ...(stored || {}) };
+      if (!s.apiKey) s.apiKey = DEFAULTS.apiKey; // an empty saved key falls back
+      resolve(s);
+    });
+  });
+}
 
 // Let content scripts read chrome.storage.session (used for the
 // screen-capture state that hides the chatbot in every tab).
@@ -24,22 +47,6 @@ async function broadcastCaptureState() {
       try { await chrome.tabs.sendMessage(t.id, { type: 'CAPTURE_STATE', active }); } catch { /* not injectable */ }
     }
   } catch { /* ignore */ }
-}
-
-const DEFAULTS = {
-  enabled: CFG.DEFAULT_ENABLED,
-  apiKey: CFG.DEFAULT_API_KEY,
-  model: CFG.DEFAULT_MODEL,
-  language: CFG.DEFAULT_LANGUAGE,
-  verify: CFG.DEFAULT_VERIFY
-};
-
-async function getSettings() {
-  return new Promise(resolve => {
-    chrome.storage.local.get(null, stored => {
-      resolve({ ...DEFAULTS, ...(stored || {}) });
-    });
-  });
 }
 
 // ---------------------------------------------------------------- Groq client
