@@ -254,7 +254,7 @@ function buildChatMessages(payload) {
   const messages = [{ role: 'system', content: CFG.CHAT_SYSTEM_PROMPT }];
 
   const ctx = payload.context || {};
-  let ctxText = `PAGE CONTEXT\nTitle: ${String(ctx.title || '').slice(0, 200)}\nURL: ${String(ctx.url || '').slice(0, 300)}`;
+  let ctxText = `PAGE CONTEXT (reference material — re-read fresh on every message)\nTitle: ${String(ctx.title || '').slice(0, 200)}\nURL: ${String(ctx.url || '').slice(0, 300)}`;
   if (ctx.selection) {
     ctxText += `\n\nUSER'S CURRENT SELECTION (highest priority — the user probably selected this on purpose):\n${String(ctx.selection).slice(0, 4000)}`;
   }
@@ -264,12 +264,15 @@ function buildChatMessages(payload) {
   if (ctx.editorCode && String(ctx.editorCode).trim()) {
     ctxText += `\n\nCURRENT CODE EDITOR CONTENT — the file the user has open (language: ${ctx.language || 'unknown — detect it from this code'}):\n${String(ctx.editorCode).slice(0, 12000)}`;
   }
+  ctxText += `\n\nNOTE: this context is reference material for the ongoing conversation that follows it. Follow-up requests in the conversation (e.g. "remove comments", "make it shorter", "change it to a loop") refer to YOUR PREVIOUS ANSWER, not to this page text.`;
   messages.push({ role: 'system', content: ctxText });
 
-  const history = Array.isArray(payload.history) ? payload.history.slice(-12) : [];
+  // Full recent conversation — answers are NOT truncated here (code-heavy
+  // replies regularly exceed 4k chars and follow-up edits need them intact).
+  const history = Array.isArray(payload.history) ? payload.history.slice(-16) : [];
   for (const m of history) {
     if (m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string' && m.content.trim()) {
-      messages.push({ role: m.role, content: m.content.slice(0, 4000) });
+      messages.push({ role: m.role, content: m.content.slice(0, 12000) });
     }
   }
   messages.push({ role: 'user', content: String(payload.question || '').slice(0, 4000) });
@@ -338,8 +341,8 @@ async function streamChatToPort(port, payload) {
         model,
         messages,
         temperature: 0.4,
-        maxTokens: 6000,
-        reasoningEffort: 'low'
+        maxTokens: 8000,
+        reasoningEffort: 'medium'
       }, chunk => { received = true; port.postMessage({ chunk }); });
       port.postMessage({ done: true, model });
       return;

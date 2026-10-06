@@ -1254,9 +1254,23 @@
   function resetTopic() {
     ensureUI();
     chatHistory = [];
+    saveChatHistory();
     const note = addMsgEl('ai', '🧹 Fresh start — previous questions cleared from my context. Ask about the question now on screen (or select part of it first for precision).');
     note.classList.add('thinking');
     setTimeout(() => note.remove(), 3500);
+  }
+
+  // Conversation memory survives page reloads (per tab, via sessionStorage).
+  function saveChatHistory() {
+    try { sessionStorage.setItem('csChatHistory', JSON.stringify(chatHistory.slice(-30))); } catch { /* ignore */ }
+  }
+
+  function loadChatHistory() {
+    try {
+      const raw = sessionStorage.getItem('csChatHistory');
+      const arr = raw ? JSON.parse(raw) : [];
+      chatHistory = Array.isArray(arr) ? arr.filter(m => m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string') : [];
+    } catch { chatHistory = []; }
   }
 
   async function sendChat(raw) {
@@ -1297,7 +1311,8 @@
       ui.sendBtn.disabled = false;
       chatHistory.push({ role: 'user', content: text });
       chatHistory.push({ role: 'assistant', content: finalText });
-      if (chatHistory.length > 24) chatHistory = chatHistory.slice(-24);
+      if (chatHistory.length > 30) chatHistory = chatHistory.slice(-30);
+      saveChatHistory();
       renderAI(aiEl, finalText);
     }
 
@@ -1306,7 +1321,7 @@
       port.postMessage({
         type: 'CHAT_STREAM',
         question: text,
-        history: chatHistory.slice(-12),
+        history: chatHistory.slice(-16),
         context
       });
     } catch (e) {
@@ -1570,6 +1585,7 @@
 
   (async () => {
     if (!IS_TOP) return; // frames only participate in the context handshake
+    loadChatHistory();
     const settings = await new Promise(resolve => chrome.storage.local.get(null, s => resolve(s || {})));
     if (typeof settings.csIncludePage === 'boolean') includePage = settings.csIncludePage;
     if (Number.isInteger(settings.csFontScale)) {
