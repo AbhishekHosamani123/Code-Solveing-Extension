@@ -192,7 +192,7 @@ function friendlyError(e) {
   const msg = (e && e.message) || '';
   if (status === 401 || status === 403) return 'Groq rejected the API key (invalid or no access). Update it in Options.';
   if (status === 429) return 'Groq rate limit reached. Wait a minute and retry, or switch models in Options.';
-  if (status === 413 || /context length|too large|too long/i.test(msg)) return 'The problem is too long for this model. Try selecting just the statement instead.';
+  if (status === 413 || /context length|too large|too long/i.test(msg)) return 'This request got too big for the model (long page + long conversation). It auto-trims now — if it still happens, click 🧹 New question to start a fresh topic.';
   if (/failed to fetch|networkerror/i.test(msg)) return 'Network error reaching Groq. Check your connection.';
   return `Groq error: ${msg.slice(0, 300) || 'unknown'}`;
 }
@@ -252,30 +252,78 @@ async function solve(payload) {
 
 function buildChatMessages(payload) {
   const messages = [{ role: 'system', content: CFG.CHAT_SYSTEM_PROMPT }];
-
   const ctx = payload.context || {};
+
+  // ---- Total prompt budget -------------------------------------------------
+  // Every field has its own cap, but the caps ADD UP — page text + open file
+  // + a long history once totaled ~230k chars, which overflows free-tier
+  // tokens-per-minute limits and the smaller fallback model's context window.
+  // So assemble against ONE budget, allocating newest/most-important first:
+  // question > selection > recent conversation > page regions > open file.
+  const TOTAL_BUDGET = 56000; // chars ≈ ~14k tokens, plus ~8k output tokens
+  let used = 0;
+  const fit = (text, max) => {
+    const t = String(text || '');
+    const out = t.slice(0, Math.min(max, Math.max(0, TOTAL_BUDGET - used)));
+    used += out.length;
+    return out;
+  };
+
+  // 1) Current question — always full.
+  const question = String(payload.question || '').slice(0, 4000);
+  used += question.length;
+
+  // 2) User's selection.
+  const selMax = 4000;
+  const selection = ctx.selection ? fit(ctx.selection, selMax) : '';
+
+  // 3) Conversation history — allocated NEWEST-FIRST so follow-ups always
+  //    keep the most recent answers (incl. their code) fully intact; older
+  //    turns are compressed to a one-line summary each.
+  const history = Array.isArray(payload.history)
+    ? payload.history.filter(m => m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string' && m.content.trim())
+    : [];
+  const recentFull = 2;
+  const historyBudget = Math.max(6000, TOTAL_BUDGET - used - 22000);
+  const histUsed = { v: 0 };
+  const histParts = [];
+  for (let i = history.length - 1; i >= 0; i--) {
+    const m = history[i];
+    const remaining = historyBudget - histUsed.v;
+    if (remaining < 200) break;
+    let cap = 600;
+    if (history.length - 1 - i < recentFull) cap = Math.min(8000, remaining);
+    let content = m.content.slice(0, Math.min(cap, remaining));
+    if (content.length < m.content.length) content += '\n(earlier message, trimmed)';
+    histParts.unshift({ role: m.role, content });
+    histUsed.v += content.length;
+  }
+  used += histUsed.v;
+
+  // 4) Page regions (content.js orders them question/README-first, so
+  //    trimming from the end drops the least important tail).
+  const pageMax = Math.min(14000, Math.max(0, TOTAL_BUDGET - used - 8000));
+  const pageText = ctx.pageText ? fit(ctx.pageText, pageMax) : '';
+
+  // 5) Open file.
+  const editorMax = Math.min(8000, Math.max(0, TOTAL_BUDGET - used));
+  const editorCode = ctx.editorCode ? fit(ctx.editorCode, editorMax) : '';
+
+  // ---- Assemble (chronological) --------------------------------------------
   let ctxText = `PAGE CONTEXT (reference material — re-read fresh on every message)\nTitle: ${String(ctx.title || '').slice(0, 200)}\nURL: ${String(ctx.url || '').slice(0, 300)}`;
-  if (ctx.selection) {
-    ctxText += `\n\nUSER'S CURRENT SELECTION (highest priority — the user probably selected this on purpose):\n${String(ctx.selection).slice(0, 4000)}`;
+  if (selection) {
+    ctxText += `\n\nUSER'S CURRENT SELECTION (highest priority — the user probably selected this on purpose):\n${selection}`;
   }
-  if (ctx.pageText) {
-    ctxText += `\n\nPAGE TEXT (labeled regions extracted from the page — question description, README/doc preview, repo file tree, etc.):\n${String(ctx.pageText).slice(0, 24000)}`;
+  if (pageText) {
+    ctxText += `\n\nPAGE TEXT (labeled regions extracted from the page — question description, README/doc preview, repo file tree, etc.):\n${pageText}`;
   }
-  if (ctx.editorCode && String(ctx.editorCode).trim()) {
-    ctxText += `\n\nCURRENT CODE EDITOR CONTENT — the file the user has open (language: ${ctx.language || 'unknown — detect it from this code'}):\n${String(ctx.editorCode).slice(0, 12000)}`;
+  if (editorCode && editorCode.trim()) {
+    ctxText += `\n\nCURRENT CODE EDITOR CONTENT — the file the user has open (language: ${ctx.language || 'unknown — detect it from this code'}):\n${editorCode}`;
   }
   ctxText += `\n\nNOTE: this context is reference material for the ongoing conversation that follows it. Follow-up requests in the conversation (e.g. "remove comments", "make it shorter", "change it to a loop") refer to YOUR PREVIOUS ANSWER, not to this page text.`;
   messages.push({ role: 'system', content: ctxText });
-
-  // Full recent conversation — answers are NOT truncated here (code-heavy
-  // replies regularly exceed 4k chars and follow-up edits need them intact).
-  const history = Array.isArray(payload.history) ? payload.history.slice(-16) : [];
-  for (const m of history) {
-    if (m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string' && m.content.trim()) {
-      messages.push({ role: m.role, content: m.content.slice(0, 12000) });
-    }
-  }
-  messages.push({ role: 'user', content: String(payload.question || '').slice(0, 4000) });
+  for (const m of histParts) messages.push(m);
+  messages.push({ role: 'user', content: question });
   return messages;
 }
 
