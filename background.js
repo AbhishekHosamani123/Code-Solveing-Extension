@@ -192,7 +192,7 @@ function friendlyError(e) {
   const msg = (e && e.message) || '';
   if (status === 401 || status === 403) return 'Groq rejected the API key (invalid or no access). Update it in Options.';
   if (status === 429) return 'Groq rate limit reached. Wait a minute and retry, or switch models in Options.';
-  if (status === 413 || /context length|too large|too long/i.test(msg)) return 'This request got too big for the model (long page + long conversation). It auto-trims now — if it still happens, click 🧹 New question to start a fresh topic.';
+  if (status === 413 || /context length|too large|too long|maximum context|too many tokens|request too large/i.test(msg)) return 'This request got too big for the model (long page + long conversation). It auto-retries with a tighter context — if it still happens, click 🧹 Clear to start a fresh topic.';
   if (/failed to fetch|networkerror/i.test(msg)) return 'Network error reaching Groq. Check your connection.';
   return `Groq error: ${msg.slice(0, 300) || 'unknown'}`;
 }
@@ -250,17 +250,17 @@ async function solve(payload) {
   throw lastError || new Error('Solve failed.');
 }
 
-function buildChatMessages(payload) {
+function buildChatMessages(payload, budgetOverride) {
   const messages = [{ role: 'system', content: CFG.CHAT_SYSTEM_PROMPT }];
   const ctx = payload.context || {};
 
   // ---- Total prompt budget -------------------------------------------------
-  // Every field has its own cap, but the caps ADD UP — page text + open file
-  // + a long history once totaled ~230k chars, which overflows free-tier
-  // tokens-per-minute limits and the smaller fallback model's context window.
-  // So assemble against ONE budget, allocating newest/most-important first:
-  // question > selection > recent conversation > page regions > open file.
-  const TOTAL_BUDGET = 56000; // chars ≈ ~14k tokens, plus ~8k output tokens
+  // Single shared budget so page text + editor + history cannot overflow.
+  // Newest/most-important first: question > selection > recent conversation
+  // > page regions > open file. Tighter default keeps free-tier TPM and the
+  // smallest fallback context window (32k tokens) safe even with 2-3 turns of
+  // large answers; larger tiers are tried only if the first attempt fails.
+  const TOTAL_BUDGET = budgetOverride || 36000; // chars ≈ ~9k tokens + ~8k output
   let used = 0;
   const fit = (text, max) => {
     const t = String(text || '');
@@ -274,25 +274,30 @@ function buildChatMessages(payload) {
   used += question.length;
 
   // 2) User's selection.
-  const selMax = 4000;
+  const selMax = 3000;
   const selection = ctx.selection ? fit(ctx.selection, selMax) : '';
 
   // 3) Conversation history — allocated NEWEST-FIRST so follow-ups always
   //    keep the most recent answers (incl. their code) fully intact; older
-  //    turns are compressed to a one-line summary each.
+  //    turns are compressed. Caps are proportional to the total budget so a
+  //    smaller budget automatically shrinks old history first.
   const history = Array.isArray(payload.history)
     ? payload.history.filter(m => m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string' && m.content.trim())
     : [];
   const recentFull = 2;
-  const historyBudget = Math.max(6000, TOTAL_BUDGET - used - 22000);
+  const recentCap = TOTAL_BUDGET > 30000 ? 5000 : TOTAL_BUDGET > 18000 ? 3500 : 2000;
+  const olderCap = TOTAL_BUDGET > 30000 ? 450 : 300;
+  const reservedForPageAndEditor = TOTAL_BUDGET > 30000 ? 14000 : 8000;
+  const historyBudget = Math.max(4000, TOTAL_BUDGET - used - reservedForPageAndEditor);
   const histUsed = { v: 0 };
   const histParts = [];
   for (let i = history.length - 1; i >= 0; i--) {
     const m = history[i];
     const remaining = historyBudget - histUsed.v;
     if (remaining < 200) break;
-    let cap = 600;
-    if (history.length - 1 - i < recentFull) cap = Math.min(8000, remaining);
+    let cap = olderCap;
+    if (history.length - 1 - i < recentFull) cap = Math.min(recentCap, remaining);
+    else cap = Math.min(cap, remaining);
     let content = m.content.slice(0, Math.min(cap, remaining));
     if (content.length < m.content.length) content += '\n(earlier message, trimmed)';
     histParts.unshift({ role: m.role, content });
@@ -302,11 +307,11 @@ function buildChatMessages(payload) {
 
   // 4) Page regions (content.js orders them question/README-first, so
   //    trimming from the end drops the least important tail).
-  const pageMax = Math.min(14000, Math.max(0, TOTAL_BUDGET - used - 8000));
+  const pageMax = Math.min(10000, Math.max(0, TOTAL_BUDGET - used - 5000));
   const pageText = ctx.pageText ? fit(ctx.pageText, pageMax) : '';
 
   // 5) Open file.
-  const editorMax = Math.min(8000, Math.max(0, TOTAL_BUDGET - used));
+  const editorMax = Math.min(6000, Math.max(0, TOTAL_BUDGET - used));
   const editorCode = ctx.editorCode ? fit(ctx.editorCode, editorMax) : '';
 
   // ---- Assemble (chronological) --------------------------------------------
@@ -372,6 +377,12 @@ async function streamGroq(apiKey, { model, messages, temperature, maxTokens, rea
   }
 }
 
+function isContextLengthError(e) {
+  const status = e && e.status;
+  const msg = (e && e.message) || '';
+  return status === 413 || /context length|too large|too long|maximum context|too many tokens|request too large/i.test(msg);
+}
+
 async function streamChatToPort(port, payload) {
   const settings = await getSettings();
   const apiKey = (settings.apiKey || '').trim();
@@ -379,29 +390,60 @@ async function streamChatToPort(port, payload) {
     port.postMessage({ error: 'No Groq API key set. Open the extension options and add one.' });
     return;
   }
-  const messages = buildChatMessages(payload);
-  const models = [settings.model, ...CFG.FALLBACK_MODELS.filter(m => m !== settings.model)];
 
-  for (const model of models) {
-    try {
-      let received = false;
-      await streamGroq(apiKey, {
-        model,
-        messages,
-        temperature: 0.4,
-        maxTokens: 8000,
-        reasoningEffort: 'medium'
-      }, chunk => { received = true; port.postMessage({ chunk }); });
-      port.postMessage({ done: true, model });
-      return;
-    } catch (e) {
-      if (!isRetryableModel(e)) {
-        port.postMessage({ error: friendlyError(e) });
+  // Try progressively smaller prompt budgets when the model says the
+  // request is too large, so 1-2 long turns + a big page never hard-fails.
+  // Each attempt rebuilds messages with a tighter budget.
+  const budgetTiers = [null, 22000, 14000, 7000]; // null = default (36000)
+  const models = [settings.model, ...CFG.FALLBACK_MODELS.filter(m => m !== settings.model)];
+  let lastError = null;
+
+  for (const budget of budgetTiers) {
+    const messages = buildChatMessages(payload, budget);
+    // Keep input + output inside even the smallest fallback window (32k).
+    // Smaller budget → proportionally smaller output cap.
+    const maxTokens = !budget || budget > 20000 ? 7000 : budget > 10000 ? 5000 : 3500;
+
+    for (const model of models) {
+      try {
+        await streamGroq(apiKey, {
+          model,
+          messages,
+          temperature: 0.4,
+          maxTokens,
+          reasoningEffort: 'medium'
+        }, chunk => { port.postMessage({ chunk }); });
+        port.postMessage({ done: true, model });
         return;
+      } catch (e) {
+        lastError = e;
+        if (isContextLengthError(e)) break; // same model won't help — shrink prompt and retry
+        if (!isRetryableModel(e)) {
+          port.postMessage({ error: friendlyError(e) });
+          return;
+        }
+        // rate-limit / model not available → try next model at same budget
       }
     }
+
+    if (!lastError || !isContextLengthError(lastError)) {
+      // Exhausted models without a context-length error — nothing more to shrink.
+      break;
+    }
+    // Context-length error: notify once before the smaller retry so the
+    // user sees progress instead of a hang, then loop to the next budget.
+    if (budget === null) {
+      try { port.postMessage({ chunk: '\n\n_…request was large — retrying with a tighter context…_\n\n' }); } catch { /* port closed */ }
+    }
   }
-  port.postMessage({ error: 'Groq is rate-limiting every available model right now. Wait a minute and retry.' });
+
+  if (lastError && isContextLengthError(lastError)) {
+    port.postMessage({ error: 'The page + conversation is still too large even after auto-trimming. Click 🧹 Clear to start a fresh topic, then ask again (your last question is preserved — re-paste it).' });
+  } else if (lastError) {
+    port.postMessage({ error: friendlyError(lastError) });
+  } else {
+    port.postMessage({ error: 'Groq is rate-limiting every available model right now. Wait a minute and retry.' });
+  }
 }
 
 chrome.runtime.onConnect.addListener(port => {

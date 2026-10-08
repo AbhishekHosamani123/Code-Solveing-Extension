@@ -25,6 +25,20 @@
         document.documentElement.setAttribute('data-cs-monaco-result', 'pong');
         return;
       }
+      if (detail.op === 'getLines') {
+        var edG = pickEditor(); var near=null;
+        if (edG) try {
+          var m = edG.getModel();
+          near = {
+            lineCount: m ? m.getLineCount() : 0,
+            sel: (function(){ try{ var s=edG.getSelection(); return s?{ startLineNumber:s.startLineNumber||s.startLine||1, endLineNumber:s.endLineNumber||s.endLine||s.startLineNumber||1 }:{ startLineNumber:1, endLineNumber:1 }; }catch(e){ return {startLineNumber:1,endLineNumber:1}; }})(),
+            text: m ? m.getValue() : ''
+          };
+        } catch (e5) {}
+        document.documentElement.setAttribute('data-cs-monaco-lines', near ? JSON.stringify(near) : '');
+        document.documentElement.setAttribute('data-cs-monaco-result', near ? 'ok' : 'error');
+        return;
+      }
       if (detail.op === 'typeStart' || detail.op === 'typeEnd') {
         var eds = (window.monaco && monaco.editor && monaco.editor.getEditors) ? monaco.editor.getEditors() : [];
         for (var j = 0; j < eds.length; j++) {
@@ -49,6 +63,20 @@
             }
           } catch (err2) { /* per-editor failure must not break others */ }
         }
+        document.documentElement.setAttribute('data-cs-monaco-result', 'ok');
+        return;
+      }
+      if (detail.op === 'selectRange') {
+        var ed2 = pickEditor();
+        if (!ed2) return;
+        try {
+          var RangeCtor = monaco.Range || (monaco.editor && monaco.editor.Range);
+          var r = RangeCtor ? new RangeCtor(detail.startLine, detail.startCol || 1, detail.endLine, detail.endCol || 1)
+                            : { startLineNumber: detail.startLine, startColumn: detail.startCol||1, endLineNumber: detail.endLine, endColumn: detail.endCol||1 };
+          ed2.setSelection(r);
+          try { ed2.revealLineInCenter(detail.startLine); } catch (e2) {}
+          try { ed2.focus(); } catch (e3) {}
+        } catch (e4) {}
         document.documentElement.setAttribute('data-cs-monaco-result', 'ok');
         return;
       }

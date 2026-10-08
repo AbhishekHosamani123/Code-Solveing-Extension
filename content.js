@@ -212,7 +212,7 @@
 
   function collectPageRegions() {
     const keywords = /(constraint|example|input|output|explanation|note|question|task|requirement|error|issue|endpoint|api|overview)/i;
-    const budget = 22000;
+    const budget = 16000;
     let used = 0;
 
     const scan = selectors => {
@@ -224,7 +224,7 @@
         for (const el of els) {
           if (seen.has(el) || !hasLayout(el)) continue;
           seen.add(el);
-          const t = textOf(el, 8000);
+          const t = textOf(el, 6000);
           if (t.length < 120) continue;
           scored.push({
             el, text: t,
@@ -250,7 +250,7 @@
     const picked = scan(REGION_SELECTORS_SPECIFIC);
     if (!picked.length) picked.push(...scan(REGION_SELECTORS_GENERIC));
     if (!picked.length) {
-      const body = textOf(document.body, 12000);
+      const body = textOf(document.body, 8000);
       if (body) picked.push({ el: document.body, text: body });
     }
     return picked.map(p => `[${regionLabel(p.el, p.text)}]\n${p.text}`);
@@ -329,10 +329,10 @@
   async function buildPageContext(includePage) {
     const sel = String(window.getSelection ? window.getSelection() || '' : '').trim();
     const ctx = { title: document.title, url: location.href };
-    if (sel) ctx.selection = cap(sel, 4000);
+    if (sel) ctx.selection = cap(sel, 3000);
     if (includePage) {
       ctx.pageText = await buildFrameContext(900);
-      ctx.editorCode = cap(readEditorText(), 12000);
+      ctx.editorCode = cap(readEditorText(), 8000);
       ctx.language = detectLanguage();
     }
     return ctx;
@@ -347,13 +347,13 @@
   function frameOwnContext() {
     let text = pageContextText();
     const sel = String(window.getSelection ? window.getSelection() || '' : '').trim();
-    if (sel) text = '[user selection in this frame]\n' + cap(sel, 4000) + '\n\n---\n\n' + text;
+    if (sel) text = '[user selection in this frame]\n' + cap(sel, 3000) + '\n\n---\n\n' + text;
     try {
       if (TYPER) {
         const ed = TYPER.findEditor();
         if (ed) {
           const t = ed.readAll();
-          if (t && t.trim().length > 20) text += '\n\n---\n\n[open file — editor content]\n' + cap(t, 10000);
+          if (t && t.trim().length > 20) text += '\n\n---\n\n[open file — editor content]\n' + cap(t, 7000);
         }
       }
     } catch { /* ignore */ }
@@ -471,6 +471,8 @@
     }
     .hbtn:hover { background: rgba(129, 140, 248, .16); color: #e2e8f0; }
     .hbtn.on { color: #a5b4fc; }
+    .hbtn.clearb { color: #fca5a5; }
+    .hbtn.clearb:hover { background: rgba(248, 113, 113, .16); color: #fecaca; }
     .hbtn.fminus, .hbtn.fplus { font-size: .74em; font-weight: 700; min-width: 25px; padding: 4px 5px; }
     .priv {
       font-size: .76em; color: #4ade80; background: rgba(5, 46, 22, .9);
@@ -836,6 +838,7 @@
         <span class="spacer"></span>
         <button class="hbtn fminus" title="Smaller text">A−</button>
         <button class="hbtn fplus" title="Larger text">A+</button>
+        <button class="hbtn clearb" title="Clear conversation — wipes history and the screen (use when the request gets too large)">🧹</button>
         <button class="hbtn ctx on" title="Include this page's content in every answer">📄</button>
         <button class="hbtn floatb" title="Float in a private always-on-top window — invisible when you share this tab or window">🪟</button>
         <button class="hbtn scr hidden" title="Move this window to your other screen">⇄</button>
@@ -846,7 +849,7 @@
       </div>
       <div class="chips">
         <button class="chip" data-q="__solve__">🚀 Solve this problem</button>
-        <button class="chip" data-q="__newquestion__">🧹 New question</button>
+        <button class="chip" data-q="__newquestion__">🧹 Clear</button>
         <button class="chip" data-q="Explain what this page is asking and what a good solution looks like.">Explain this page</button>
         <button class="chip" data-q="Review the code in my editor (or the code on this page): bugs, edge cases, complexity.">Review my code</button>
       </div>
@@ -878,6 +881,7 @@
       host, shadow, bubble, card,
       head: card.querySelector('.head'),
       privEl: card.querySelector('.priv'),
+      clearBtn: card.querySelector('.clearb'),
       ctxBtn: card.querySelector('.ctx'),
       floatBtn: card.querySelector('.floatb'),
       scrBtn: card.querySelector('.scr'),
@@ -909,6 +913,7 @@
     ui.floatBtn.addEventListener('click', () => (floated ? closeFloat(false) : floatWidget()));
     ui.fminus.addEventListener('click', () => { fontScaleIdx = Math.max(0, fontScaleIdx - 1); applyFontScale(); });
     ui.fplus.addEventListener('click', () => { fontScaleIdx = Math.min(FONT_STEPS.length - 1, fontScaleIdx + 1); applyFontScale(); });
+    ui.clearBtn.addEventListener('click', () => resetTopic());
     ui.scrBtn.addEventListener('click', () => moveToOtherScreen());
     ui.minBtn.addEventListener('click', () => {
       if (floated) { closeFloat(true); return; } // minimize lands back on the page
@@ -1187,6 +1192,29 @@
     if (last < text.length) target.appendChild(document.createTextNode(text.slice(last)));
   }
 
+  function inferTargetName(code) {
+    const t = String(code || '');
+    let m = t.match(/^\s*def\s+([A-Za-z_]\w*)\s*\(/m); if (m) return m[1];
+    m = t.match(/function\s+([A-Za-z_]\w*)\s*\(/m); if (m) return m[1];
+    m = t.match(/(?:public|private|protected)?\s*(?:static\s+)?\w+\s+([A-Za-z_]\w*)\s*\(/m); if (m) return m[1];
+    m = t.match(/class\s+([A-Za-z_]\w*)/m); if (m) return m[1];
+    return '';
+  }
+
+  // Label type buttons clearly: smart fill vs full-replace.
+  function typeButtonMeta(adapter, code) {
+    if (!adapter || !TYPER || !TYPER.planTargetedEdit) return { label: '⌨️ Type', title: 'Type this code into the page editor like a human' };
+    try {
+      const plan = TYPER.planTargetedEdit(adapter, code, { targetName: inferTargetName(code) });
+      if (plan && plan.range) {
+        const name = inferTargetName(code);
+        const where = name ? `inside ${name}()` : `at the placeholder`;
+        return { label: '⌨️ Fill here', title: `Only replaces the placeholder ${where} — the rest of the file stays untouched`, plan };
+      }
+    } catch { /* fall through */ }
+    return { label: '⌨️ Type', title: 'Type this code into the page editor (replaces the whole file) — proper indentation preserved' };
+  }
+
   function makeCodeBlock(lang, code) {
     const wrap = document.createElement('div');
     wrap.className = 'codeblock';
@@ -1206,13 +1234,32 @@
       setTimeout(() => { copyBtn.textContent = 'Copy'; }, 1400);
     });
     const typeBtn = document.createElement('button');
-    typeBtn.textContent = '⌨️ Type';
-    typeBtn.title = 'Type this code into the page editor like a human';
-    typeBtn.addEventListener('click', () => typeCode(code, wrap));
+    // Decide label lazily on click so it reflects the live editor; give a
+    // useful default in advance when the editor is already present.
+    let meta = { label: '⌨️ Type', title: 'Type this code into the page editor like a human', plan: null };
+    try {
+      const ad = TYPER ? TYPER.findEditor() : null;
+      if (ad) meta = typeButtonMeta(ad, code);
+    } catch { /* ignore */ }
+    typeBtn.textContent = meta.label;
+    typeBtn.title = meta.title;
+    typeBtn.addEventListener('click', () => typeCode(code, wrap, meta.plan));
+
+    // When a targeted fill is available, also offer an explicit "replace all"
+    // escape hatch so the user can still overwrite the whole file when needed.
+    let typeAllBtn = null;
+    if (meta.plan) {
+      typeAllBtn = document.createElement('button');
+      typeAllBtn.textContent = 'Replace all';
+      typeAllBtn.title = 'Type the full file instead (overwrites everything)';
+      typeAllBtn.style.opacity = '0.85';
+      typeAllBtn.addEventListener('click', () => typeCode(code, wrap, null, { forceFull: true }));
+    }
     head.appendChild(langEl);
     head.appendChild(sp);
     head.appendChild(copyBtn);
     head.appendChild(typeBtn);
+    if (typeAllBtn) head.appendChild(typeAllBtn);
 
     const pre = document.createElement('pre');
     const codeEl = document.createElement('code');
@@ -1407,7 +1454,10 @@
 
   // Type code into the page editor with human cadence; progress shows inline
   // under the code block, with a Stop button.
-  async function typeCode(code, codeblockEl) {
+  // When `prefillPlan` is a fill-range plan (from typeButtonMeta), only that
+  // placeholder range is replaced — boilerplate / big-file content around it
+  // stays exactly as-is and indentation is matched to the file.
+  async function typeCode(code, codeblockEl, prefillPlan, extra) {
     if (!TYPER) {
       addMsgEl('ai', 'Typing engine unavailable — use Copy instead.', 'err');
       return;
@@ -1445,18 +1495,53 @@
     status.appendChild(stopBtn);
     codeblockEl.appendChild(status);
 
+    // Decide smart fill vs full-replace. A stale plan (user switched file) is discarded.
+    const forceFull = !!(extra && extra.forceFull);
+    let plan = !forceFull ? (prefillPlan || null) : null;
+    try {
+      if (!forceFull && TYPER.planTargetedEdit) {
+        const live = TYPER.planTargetedEdit(adapter, code, { targetName: inferTargetName(code) });
+        // Use live plan when available; otherwise fall back to the click-time plan if size hasn't gone stale.
+        if (live && live.range) plan = live;
+        else if (live === null && plan && plan.range) {
+          // Keep capture-time plan only when editor length hasn't changed wildly.
+          const curLen = (adapter.readAll && adapter.readAll() || '').length;
+          if (!isFinite(curLen) || curLen < 40) plan = null;
+        }
+      }
+    } catch { plan = prefillPlan || null; }
+    if (forceFull) plan = null;
+
+    const useRange = !!(plan && plan.range && plan.snippet && TYPER.humanTypeRange);
+    if (useRange) {
+      label.textContent = 'Filling target lines… 0%';
+    }
+
     let res;
     try {
-      res = await TYPER.humanType(adapter, code, {
-        speed: settings.typingSpeed || CFG.DEFAULT_TYPING_SPEED,
-        typos: settings.humanTypos !== false,
-        cancelled: () => cancelled || token !== typingRun,
-        onProgress: (f, line, total) => {
-          if (token !== typingRun) return;
-          fill.style.width = Math.round(f * 100) + '%';
-          label.textContent = `Typing… ${Math.round(f * 100)}% (line ${line}/${total})`;
-        }
-      });
+      if (useRange) {
+        res = await TYPER.humanTypeRange(adapter, plan.snippet, plan.range, {
+          speed: settings.typingSpeed || CFG.DEFAULT_TYPING_SPEED,
+          typos: settings.humanTypos !== false,
+          cancelled: () => cancelled || token !== typingRun,
+          onProgress: (f, line, total) => {
+            if (token !== typingRun) return;
+            fill.style.width = Math.round(f * 100) + '%';
+            label.textContent = `Filling… ${Math.round(f * 100)}% (line ${line}/${total})`;
+          }
+        });
+      } else {
+        res = await TYPER.humanType(adapter, code, {
+          speed: settings.typingSpeed || CFG.DEFAULT_TYPING_SPEED,
+          typos: settings.humanTypos !== false,
+          cancelled: () => cancelled || token !== typingRun,
+          onProgress: (f, line, total) => {
+            if (token !== typingRun) return;
+            fill.style.width = Math.round(f * 100) + '%';
+            label.textContent = `Typing… ${Math.round(f * 100)}% (line ${line}/${total})`;
+          }
+        });
+      }
     } finally {
       if (token === typingRun) status.remove();
     }
@@ -1466,6 +1551,22 @@
     note.className = 'verdict' + (res.cancelled ? ' warn' : '');
     if (res.cancelled) {
       note.textContent = `⚠ Typing stopped at ${Math.round((res.typed / Math.max(1, res.total)) * 100)}%.`;
+    } else if (useRange) {
+      // Range-mode verification checks the range content, not the whole file.
+      let ok = null;
+      try {
+        const lines = (adapter.readLines ? adapter.readLines() : (adapter.readAll() || '').split('\n'));
+        const seg = lines.slice(plan.range.startLine - 1, plan.range.endLine).join('\n');
+        const tight = s => String(s||'').split('\n').map(l => l.replace(/[ \t]+$/, '')).join('\n').trim();
+        const segNorm = tight(seg), snipNorm = tight(plan.snippet);
+        if (segNorm && snipNorm) ok = segNorm.includes(snipNorm.slice(0, Math.min(80, snipNorm.length))) || snipNorm === segNorm;
+        if (ok === null) ok = TYPER.looksComplete(adapter, plan.snippet);
+      } catch { ok = null; }
+      note.textContent = ok === true
+        ? `✓ Filled lines ${plan.range.startLine}–${plan.range.endLine} — rest of the file untouched.`
+        : ok === false
+          ? `⚠ Filled lines ${plan.range.startLine}–${plan.range.endLine}, but the range differs — check indentation.`
+          : `✓ Filled ${res.typed} characters at lines ${plan.range.startLine}–${plan.range.endLine}. Review the editor.`;
     } else {
       const verdict = TYPER.looksComplete(adapter, code);
       note.textContent = verdict === true
