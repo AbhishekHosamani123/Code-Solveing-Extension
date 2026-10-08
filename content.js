@@ -1249,15 +1249,18 @@
 
   // -------------------------------------------------------------- actions
 
-  // Drop the model's conversation history — used when moving to a new
-  // question so earlier answers can't bleed into the next one.
   function resetTopic() {
     ensureUI();
+    // Clear both the model's history and the on-screen messages, then
+    // restore the helpful empty-state hint.
     chatHistory = [];
     saveChatHistory();
-    const note = addMsgEl('ai', '🧹 Fresh start — previous questions cleared from my context. Ask about the question now on screen (or select part of it first for precision).');
-    note.classList.add('thinking');
-    setTimeout(() => note.remove(), 3500);
+    const msgs = ui.msgs;
+    for (const el of [...msgs.querySelectorAll('.msg')]) el.remove();
+    const empty = document.createElement('div');
+    empty.className = 'empty';
+    empty.textContent = 'Ask me anything about this page — questions, tasks, code, errors. I read the page automatically; just select anything on it and ask. Paste code too.';
+    msgs.appendChild(empty);
   }
 
   // Conversation memory survives page reloads (per tab, via sessionStorage).
@@ -1378,6 +1381,12 @@
             resp.complexity || ''
           ].filter(Boolean).join('\n\n');
           renderAI(aiEl, full);
+          // The conversation must remember the code it just gave, so
+          // follow-ups like "remove comments" / "smaller variable names" edit it.
+          chatHistory.push({ role: 'user', content: '🚀 Solve this problem' });
+          chatHistory.push({ role: 'assistant', content: full });
+          if (chatHistory.length > 30) chatHistory = chatHistory.slice(-30);
+          saveChatHistory();
 
           if (resp.verdict && resp.verdict.note) {
             const v = document.createElement('div');
