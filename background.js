@@ -9,7 +9,8 @@ const CFG = globalThis.CODESOLVE_CONFIG;
 const DEFAULTS = {
   enabled: CFG.DEFAULT_ENABLED,
   apiKey: globalThis.CS_LOCAL_API_KEY || CFG.DEFAULT_API_KEY,
-  model: CFG.DEFAULT_MODEL,
+  apiBase: globalThis.CS_LOCAL_API_BASE || '',
+  model: globalThis.CS_LOCAL_MODEL || CFG.DEFAULT_MODEL,
   language: CFG.DEFAULT_LANGUAGE,
   typingSpeed: CFG.DEFAULT_TYPING_SPEED,
   verify: CFG.DEFAULT_VERIFY
