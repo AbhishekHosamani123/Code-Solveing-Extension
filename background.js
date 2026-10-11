@@ -55,14 +55,24 @@ function isReasoningModel(model) {
   return /gpt-oss/.test(model);
 }
 
-async function callGroq(apiKey, { model, messages, temperature, maxTokens, reasoningEffort, timeoutMs = 150000 }) {
+// Effective API base: Groq by default, or any OpenAI-compatible provider the
+// user configured in Options ("API base URL"). Custom providers use the widely
+// accepted `max_tokens` field; Groq uses OpenAI's `max_completion_tokens`.
+function providerBase(settings) {
+  return String((settings && settings.apiBase) || '').trim().replace(/\/+$/, '');
+}
+
+async function callGroq(apiKey, { base, model, messages, temperature, maxTokens, reasoningEffort, timeoutMs = 150000 }) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const body = { model, messages, temperature, max_completion_tokens: maxTokens };
+    const url = (base || CFG.GROQ_BASE).replace(/\/+$/, '');
+    const body = { model, messages, temperature };
+    if (base) body.max_tokens = maxTokens;
+    else body.max_completion_tokens = maxTokens;
     if (reasoningEffort && isReasoningModel(model)) body.reasoning_effort = reasoningEffort;
 
-    const res = await fetch(`${CFG.GROQ_BASE}/chat/completions`, {
+    const res = await fetch(`${url}/chat/completions`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${apiKey}`,
@@ -207,12 +217,16 @@ async function solve(payload) {
   }
 
   const language = payload.language || settings.language || CFG.DEFAULT_LANGUAGE;
-  const models = [settings.model, ...CFG.FALLBACK_MODELS.filter(m => m !== settings.model)];
+  // Groq model fallbacks only make sense on Groq itself — with a custom
+  // provider the fallback ids would 404, so just use the configured model.
+  const base = providerBase(settings);
+  const models = [settings.model].concat(base ? [] : CFG.FALLBACK_MODELS.filter(m => m !== settings.model));
 
   let lastError = null;
   for (const model of models) {
     try {
       const solveRes = await callGroq(apiKey, {
+        base,
         model,
         messages: buildSolveMessages(payload.problem, language, payload.starterCode, payload.platform),
         temperature: 0.2,
@@ -224,6 +238,7 @@ async function solve(payload) {
       if (settings.verify && result.code) {
         try {
           const verifyRes = await callGroq(apiKey, {
+            base,
             model,
             messages: buildVerifyMessages(payload.problem, result.code, language, payload.platform),
             temperature: 0,
@@ -337,11 +352,14 @@ function buildChatMessages(payload, budgetOverride) {
   return messages;
 }
 
-async function streamGroq(apiKey, { model, messages, temperature, maxTokens, reasoningEffort, signal }, onChunk, onThinking) {
-  const body = { model, messages, temperature, max_completion_tokens: maxTokens, stream: true };
+async function streamGroq(apiKey, { base, model, messages, temperature, maxTokens, reasoningEffort, signal }, onChunk, onThinking) {
+  const url = (base || CFG.GROQ_BASE).replace(/\/+$/, '');
+  const body = { model, messages, temperature, stream: true };
+  if (base) body.max_tokens = maxTokens;
+  else body.max_completion_tokens = maxTokens;
   if (reasoningEffort && isReasoningModel(model)) body.reasoning_effort = reasoningEffort;
 
-  const res = await fetch(`${CFG.GROQ_BASE}/chat/completions`, {
+  const res = await fetch(`${url}/chat/completions`, {
     method: 'POST',
     headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -418,7 +436,8 @@ async function streamChatToPort(port, payload) {
   // request is too large, so 1-2 long turns + a big page never hard-fails.
   // Each attempt rebuilds messages with a tighter budget.
   const budgetTiers = [null, 22000, 14000, 7000]; // null = default (36000)
-  const models = [settings.model, ...CFG.FALLBACK_MODELS.filter(m => m !== settings.model)];
+  const base = providerBase(settings);
+  const models = [settings.model].concat(base ? [] : CFG.FALLBACK_MODELS.filter(m => m !== settings.model));
   let lastError = null;
 
   for (const budget of budgetTiers) {
@@ -431,6 +450,7 @@ async function streamChatToPort(port, payload) {
     for (const model of models) {
       try {
         await streamGroq(apiKey, {
+          base,
           model,
           messages,
           temperature: 0.4,
@@ -495,7 +515,8 @@ async function testKey() {
   const settings = await getSettings();
   const apiKey = (settings.apiKey || '').trim();
   if (!apiKey) return { ok: false, error: 'No API key set.' };
-  const res = await fetch(`${CFG.GROQ_BASE}/models`, {
+  const base = providerBase(settings) || CFG.GROQ_BASE;
+  const res = await fetch(`${base}/models`, {
     headers: { 'Authorization': `Bearer ${apiKey}` }
   });
   if (!res.ok) {
@@ -503,7 +524,10 @@ async function testKey() {
     return { ok: false, error: `HTTP ${res.status}: ${text.slice(0, 200)}` };
   }
   const data = await res.json();
-  const usable = (data.data || []).filter(m => (m.output_modalities || []).includes('text')).map(m => m.id);
+  // Groq reports output_modalities; other providers just list ids — be lenient.
+  const usable = (data.data || [])
+    .filter(m => !m.output_modalities || (m.output_modalities || []).includes('text'))
+    .map(m => m.id);
   return { ok: true, count: usable.length, models: usable };
 }
 

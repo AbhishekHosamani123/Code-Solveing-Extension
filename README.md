@@ -59,16 +59,21 @@ question.
 
 ## Code answers
 
-Answers render with a language label, **syntax highlighting**, and these actions:
+Answers render with a language label, **syntax highlighting in the same palette
+as the HackerRank editor** (blue keywords, orange strings, green comments,
+yellow calls, teal class names on a dark-navy editor), and these actions:
 
 - **Copy** — clipboard, one click.
 - **⌨️ Type** — types the code into the page's editor **character-by-character
-  with human cadence** (jittered delays, punctuation pauses, optional typos with
-  Backspace corrections, per-line indentation normalization). Progress shows
-  inline with a Stop button; afterwards the editor is read back and verified.
-  Monaco sites (like LeetCode) are driven through a MAIN-world bridge that uses
-  Monaco's own `type` command, since they ignore synthetic edits; CodeMirror 6
-  is driven through its own keymap-driven selection for targeted fills.
+  with human cadence** (flowing bursts inside words, planning pauses at line
+  starts, bracket awareness, statement-end beats, hesitations, space-by-space
+  indentation, optional typos with Backspace corrections). A pre-flight sanity
+  scan (bracket balance, unterminated strings, leftover markdown fences) runs
+  first, so malformed code is never typed. Progress shows inline with a Stop
+  button; afterwards the editor is read back and verified. Monaco sites (like
+  LeetCode) are driven through a MAIN-world bridge that uses Monaco's own
+  `type` command, since they ignore synthetic edits; CodeMirror 6 is driven
+  through its own keymap-driven selection for targeted fills.
 
 ## Invisible to the other side during screen sharing
 
@@ -112,6 +117,7 @@ the duration, as with any capture.
 | Setting | Meaning |
 |---|---|
 | API key | Your Groq key (free at [console.groq.com/keys](https://console.groq.com/keys)). **Required before first use** — enter it once in Options; it is stored only in your browser (`chrome.storage.local`) and never in the source code. **Test** verifies it live. |
+| API base URL (advanced) | Leave empty for Groq. Any **OpenAI-compatible** provider works (OpenAI, DeepSeek, OpenRouter, Together…) — pair it with that provider's key and a model id (pick "Custom…" in the model list). |
 | Model | Default `openai/gpt-oss-120b` with automatic fallbacks (`qwen/qwen3.8-27b`, `openai/gpt-oss-20b` — verified against this Groq account). |
 | Typing speed | Slow / Normal / Fast — used by the ⌨️ Type action. |
 | Human typos + fixes | Occasional typo + Backspace correction while typing. |

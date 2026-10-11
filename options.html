@@ -45,7 +45,7 @@
     <div class="sub">A floating chatbot on every page — powered by Groq. It reads the page, answers instantly, and can type solutions into the editor.</div>
 
     <div class="card">
-      <h2>Groq account</h2>
+      <h2>AI provider</h2>
       <div class="field">
         <label for="apiKey">API key</label>
         <div class="inline">
@@ -53,8 +53,13 @@
           <button id="toggleKey" class="ghost" style="padding: 8px 12px;">Show</button>
           <button id="testKey">Test</button>
         </div>
-        <div class="hint">Required — get a free key at console.groq.com/keys. Stored only in this browser (chrome.storage.local), never in the source code.</div>
+        <div class="hint">Required — get a free Groq key at console.groq.com/keys. Stored only in this browser (chrome.storage.local), never in the source code.</div>
         <div class="status" id="keyStatus"></div>
+      </div>
+      <div class="field" style="margin-bottom:0;">
+        <label for="apiBase">API base URL — advanced</label>
+        <input type="text" id="apiBase" placeholder="https://api.groq.com/openai/v1" autocomplete="off">
+        <div class="hint">Leave empty for Groq (default). Any OpenAI-compatible provider works — e.g. https://api.openai.com/v1 or https://api.deepseek.com — paired with that provider's key and model id (pick "Custom…" in the model list).</div>
       </div>
     </div>
 

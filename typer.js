@@ -575,6 +575,38 @@
     return ch === ch.toUpperCase() && ch !== ch.toLowerCase() ? nb.toUpperCase() : nb;
   }
 
+  // Human-like per-character delay. Fast, flowing bursts inside words; slight
+  // planning pauses at line starts; extra beats around brackets and statement
+  // ends; occasional hesitations; rare long "re-reading the problem" pauses.
+  function charDelay(ch, prev, base, lineFirst) {
+    let d = rand(base * 0.4, base * 1.5);
+    if (/[a-z]/i.test(ch) && /[a-z]/i.test(prev || '')) d *= rand(0.55, 0.95); // muscle memory inside words
+    if (lineFirst) d += rand(base * 0.4, base * 1.4);                          // plan the line
+    if ('{}()[]'.includes(ch)) d += rand(30, 170);                             // bracket awareness
+    if (ch === ';' || ch === ':' || ch === '}') d += rand(50, 260);            // end of statement
+    if (Math.random() < 0.015) d += rand(250, 900);                            // hesitation
+    if (Math.random() < 0.002) d += rand(900, 2200);                           // re-reading pause
+    return Math.max(8, d);
+  }
+
+  // Newline → a thinking beat; occasionally a noticeably longer one, like a
+  // person glancing back at the problem statement.
+  function newlinePause(base) {
+    return rand(base * 0.8, base * 1.8) + (Math.random() < 0.06 ? rand(200, 800) : 0);
+  }
+
+  // Indent is typed space-by-space (a multi-space insert appears instantly and
+  // reads as scripted) with quick, low-variance taps. Returns false if cancelled.
+  async function typeIndent(adapter, indent, base, cancelled, onChar) {
+    for (const ic of String(indent)) {
+      if (cancelled()) return false;
+      await adapter.insertUnit(ic);
+      if (onChar) onChar();
+      await sleep(rand(base * 0.2, base * 0.55));
+    }
+    return true;
+  }
+
   // After a typed newline, editors may have auto-indented the new line.
   // Remove that whitespace so the code's own exact indentation can be typed.
   // Only ever backspaces while the cursor line is observed to be empty —
@@ -861,18 +893,18 @@
         if (li > 0) {
           await adapter.insertUnit('\n');
           done += 1;
-          await sleep(rand(base * 0.9, base * 2.0));
+          await sleep(newlinePause(base));
           await clearAutoIndent(adapter);
-          if (indent) {
-            await adapter.insertUnit(indent);
-            done += indent.length;
-            await sleep(rand(base * 0.3, base * 0.9));
-          }
-        } else if (indent) {
-          await adapter.insertUnit(indent);
-          done += indent.length;
+        }
+        if (indent) {
+          const ok = await typeIndent(adapter, indent, base, cancelled, () => {
+            done += 1;
+            onProgress(Math.min(1, done / totalChars), li + 1, lines.length);
+          });
+          if (!ok) return finish();
         }
 
+        let prevCh = indent ? indent.slice(-1) : '';
         for (let ci = 0; ci < body.length; ci++) {
           if (cancelled()) return finish();
           const ch = body[ci];
@@ -886,12 +918,9 @@
 
           await adapter.insertUnit(ch);
           done += 1;
-
-          let d = rand(base * 0.45, base * 1.65);
-          if ('{}();:,.=<>+-*/!&|[]'.includes(ch)) d += rand(15, 110);
-          if (Math.random() < 0.02) d += rand(220, 850);
           onProgress(Math.min(1, done / totalChars), li + 1, lines.length);
-          await sleep(d);
+          await sleep(charDelay(ch, prevCh, base, ci === 0));
+          prevCh = ch;
         }
         onProgress(Math.min(1, done / totalChars), li + 1, lines.length);
       }
@@ -933,23 +962,14 @@
     if (adapter.onTypeStart) adapter.onTypeStart();
 
     try {
-      // Replacement is one atomic insert: the selection is replaced by the snippet's first char,
-      // then remaining units are typed incrementally. Using replaceSelection when available
-      // keeps Monaco's undo stack clean (single undo replaces the range).
+      // Replacement is one atomic insert: the selection is replaced by the
+      // snippet's first indent, then the rest is typed with human cadence.
       const firstLineIndent = lines[0] ? (lines[0].match(/^[ \t]*/)[0] || '') : '';
-      const firstBody = lines[0] ? lines[0].slice(firstLineIndent.length) : '';
 
-      // Clear the range with a single insert of the first indent; then stream.
-      if (adapter.replaceSelection) {
-        // Prime the range by inserting the first indent; browsers with execCommand
-        // semantics replace the selection with the inserted text.
-        adapter.replaceSelection(firstLineIndent);
-        done += firstLineIndent.length;
-        await sleep(rand(base * 0.3, base * 0.9));
-      } else {
-        adapter.replaceSelection ? adapter.replaceSelection('') : null;
-        if (firstLineIndent) { await adapter.insertUnit(firstLineIndent); done += firstLineIndent.length; await sleep(rand(base * 0.3, base * 0.9)); }
-      }
+      // Clear the range by replacing the selection with the first indent.
+      adapter.replaceSelection(firstLineIndent);
+      done += firstLineIndent.length;
+      await sleep(rand(base * 0.3, base * 0.9));
 
       for (let li = 0; li < lines.length; li++) {
         if (cancelled()) return finish();
@@ -957,55 +977,37 @@
         const indent = raw.match(/^[ \t]*/)[0];
         const body = raw.slice(indent.length);
 
-        if (li === 0) {
-          // First line's indent already handled above — only type its body here.
-          for (let ci = 0; ci < body.length; ci++) {
-            if (cancelled()) return finish();
-            const ch = body[ci];
-            if (typosOn && /[a-z]/i.test(ch) && Math.random() < 0.016) {
-              await adapter.insertUnit(typoChar(ch));
-              await sleep(rand(140, 420));
-              await adapter.backspace();
-              await sleep(rand(30, 110));
-            }
-            await adapter.insertUnit(ch);
-            done += 1;
-            let d = rand(base * 0.45, base * 1.65);
-            if ('{}();:,.=<>+-*/!&|[]'.includes(ch)) d += rand(15, 110);
-            if (Math.random() < 0.02) d += rand(220, 850);
-            onProgress(Math.min(1, done / totalChars), li + 1, lines.length);
-            await sleep(d);
+        if (li > 0) {
+          await adapter.insertUnit('\n');
+          done += 1;
+          await sleep(newlinePause(base));
+          await clearAutoIndent(adapter);
+          if (indent) {
+            const ok = await typeIndent(adapter, indent, base, cancelled, () => {
+              done += 1;
+              onProgress(Math.min(1, done / totalChars), li + 1, lines.length);
+            });
+            if (!ok) return finish();
           }
-          onProgress(Math.min(1, done / totalChars), li + 1, lines.length);
-          continue;
         }
 
-        // Newlines re-use the same indentation logic as humanType
-        await adapter.insertUnit('\n');
-        done += 1;
-        await sleep(rand(base * 0.9, base * 2.0));
-        await clearAutoIndent(adapter);
-        if (indent) {
-          await adapter.insertUnit(indent);
-          done += indent.length;
-          await sleep(rand(base * 0.3, base * 0.9));
-        }
+        let prevCh = (li === 0 ? firstLineIndent : indent).slice(-1) || '';
         for (let ci = 0; ci < body.length; ci++) {
           if (cancelled()) return finish();
           const ch = body[ci];
+
           if (typosOn && /[a-z]/i.test(ch) && Math.random() < 0.016) {
             await adapter.insertUnit(typoChar(ch));
             await sleep(rand(140, 420));
             await adapter.backspace();
             await sleep(rand(30, 110));
           }
+
           await adapter.insertUnit(ch);
           done += 1;
-          let d = rand(base * 0.45, base * 1.65);
-          if ('{}();:,.=<>+-*/!&|[]'.includes(ch)) d += rand(15, 110);
-          if (Math.random() < 0.02) d += rand(220, 850);
           onProgress(Math.min(1, done / totalChars), li + 1, lines.length);
-          await sleep(d);
+          await sleep(charDelay(ch, prevCh, base, ci === 0));
+          prevCh = ch;
         }
         onProgress(Math.min(1, done / totalChars), li + 1, lines.length);
       }

@@ -517,14 +517,14 @@
     @keyframes blink { 50% { opacity: 0; } }
 
     .codeblock {
-      margin: 10px 0 2px; border: 1px solid #263450; border-radius: 10px;
-      overflow: hidden; background: #0b1120;
+      margin: 10px 0 2px; border: 1px solid #2a3340; border-radius: 10px;
+      overflow: hidden; background: #10151c;
     }
     .codeblock .cbhead {
       display: flex; align-items: center; gap: 8px;
-      background: #0e1628; padding: 5px 10px; border-bottom: 1px solid #1f2d4a;
+      background: #141a22; padding: 5px 10px; border-bottom: 1px solid #222b36;
     }
-    .codeblock .lang { font-size: .76em; color: #818cf8; font-weight: 700; text-transform: uppercase; letter-spacing: .6px; }
+    .codeblock .lang { font-size: .76em; color: #569cd6; font-weight: 700; text-transform: uppercase; letter-spacing: .6px; }
     .codeblock .spacer { flex: 1; }
     .codeblock button {
       background: #1d2a45; color: #cbd5e1; border: 1px solid #2b3a58; border-radius: 6px;
@@ -535,14 +535,17 @@
     .codeblock pre {
       padding: 12px; overflow: auto; max-height: 300px; margin: 0;
       font-family: Consolas, 'JetBrains Mono', monospace; font-size: .94em;
-      line-height: 1.55; white-space: pre; color: #dbe4f5; tab-size: 4;
+      line-height: 1.55; white-space: pre; color: #d4d4d4; tab-size: 4;
     }
-    /* Safe, DOM-built syntax highlighting */
-    .codeblock .tok-kw  { color: #c792ea; }
-    .codeblock .tok-str { color: #7ee787; }
-    .codeblock .tok-num { color: #f78c6c; }
-    .codeblock .tok-com { color: #6a7fa8; font-style: italic; }
-    .codeblock .tok-fn  { color: #82aaff; }
+    /* HackerRank-style editor palette: Dark+ tokens on a dark-navy editor —
+       blue keywords, orange strings, green comments, yellow calls, teal classes,
+       pale-green numbers, near-white plain text. */
+    .codeblock .tok-kw  { color: #569cd6; }
+    .codeblock .tok-str { color: #ce9178; }
+    .codeblock .tok-num { color: #b5cea8; }
+    .codeblock .tok-com { color: #6a9955; }
+    .codeblock .tok-fn  { color: #dcdcaa; }
+    .codeblock .tok-cls { color: #4ec9b0; }
     .typestatus { display: flex; align-items: center; gap: 8px; margin: 5px 0 2px;
                   font-size: .82em; color: #94a3b8; }
     .typestatus .bar { flex: 1; height: 5px; background: #0b1120; border-radius: 999px; overflow: hidden; }
@@ -1275,7 +1278,7 @@
       sp.textContent = s;
       el.appendChild(sp);
     };
-    let last = 0, m;
+    let last = 0, m, prevSignificant = '';
     HL_TOKEN_RE.lastIndex = 0;
     while ((m = HL_TOKEN_RE.exec(code))) {
       if (m.index > last) push(null, code.slice(last, m.index));
@@ -1286,7 +1289,9 @@
       else if (tok.startsWith('//') || tok.startsWith('/*') || tok.startsWith('#')) cls = 'tok-com';
       else if (/\d/.test(c)) cls = 'tok-num';
       else if (kw.has(tok)) cls = 'tok-kw';
+      else if (prevSignificant === 'class') cls = 'tok-cls'; // class name → teal
       else if (code[m.index + tok.length] === '(') cls = 'tok-fn';
+      if (/[A-Za-z_]/.test(c) || c === '#') prevSignificant = kw.has(tok) ? tok : 'id';
       push(cls, tok);
       last = m.index + tok.length;
     }
@@ -1635,6 +1640,54 @@
     return map[lang] || (lang || '').toLowerCase().replace(/\s+/g, '-');
   }
 
+  // Pre-flight sanity scan before anything is typed into the editor: catches
+  // malformed model output (unbalanced brackets, mismatched closers,
+  // unterminated strings, leftover markdown fences) so broken code never
+  // reaches the editor. Strings, triple-quotes and comments are skipped.
+  function codeLooksSane(code, lang) {
+    const s = String(code || '');
+    if (!s.trim()) return { ok: false, why: 'the code is empty' };
+    if (s.includes('```')) return { ok: false, why: 'it still contains markdown ``` fences' };
+    const py = /py/i.test(String(lang || ''));
+    const pairs = { ')': '(', ']': '[', '}': '{' };
+    const stack = [];
+    const lineOf = idx => s.slice(0, idx).split('\n').length;
+    let i = 0;
+    const n = s.length;
+    while (i < n) {
+      const c = s[i];
+      const two = s.slice(i, i + 2);
+      if (two === '/*') { const e = s.indexOf('*/', i + 2); i = e === -1 ? n : e + 2; continue; }
+      if (two === '//' || (py && c === '#')) { const e = s.indexOf('\n', i); i = e === -1 ? n : e; continue; }
+      if (c === '"' || c === "'") {
+        const triple = s.slice(i, i + 3);
+        if (triple === '"""' || triple === "'''") {
+          const e = s.indexOf(triple, i + 3);
+          if (e === -1) return { ok: false, why: 'an unterminated triple-quoted string' };
+          i = e + 3; continue;
+        }
+        let j = i + 1;
+        while (j < n && s[j] !== c) {
+          if (s[j] === '\\') { j += 2; continue; }
+          if (s[j] === '\n') return { ok: false, why: `an unterminated string (line ${lineOf(i)})` };
+          j++;
+        }
+        if (j >= n) return { ok: false, why: `an unterminated string (line ${lineOf(i)})` };
+        i = j + 1; continue;
+      }
+      if (c === '(' || c === '[' || c === '{') { stack.push(c); i++; continue; }
+      if (c === ')' || c === ']' || c === '}') {
+        if (!stack.length || stack[stack.length - 1] !== pairs[c]) {
+          return { ok: false, why: `a mismatched "${c}" (line ${lineOf(i)})` };
+        }
+        stack.pop(); i++; continue;
+      }
+      i++;
+    }
+    if (stack.length) return { ok: false, why: `an unclosed "${stack[stack.length - 1]}"` };
+    return { ok: true };
+  }
+
   // Type code into the page editor with human cadence; progress shows inline
   // under the code block, with a Stop button.
   // When `prefillPlan` is a fill-range plan (from typeButtonMeta), only that
@@ -1646,6 +1699,13 @@
       return;
     }
     if (!code || !code.trim()) return;
+
+    // Never type malformed code: pre-flight scan (brackets, strings, fences).
+    const sanity = codeLooksSane(code, sniffLanguage(code));
+    if (!sanity.ok) {
+      addMsgEl('ai', '⚠ Pre-check failed — ' + sanity.why + '. Nothing was typed. Review or re-generate the code first (ask me to fix it).', 'err');
+      return;
+    }
 
     let adapter = null;
     for (let i = 0; i < 10 && !adapter; i++) {

@@ -60,6 +60,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   $('apiKey').value = settings.apiKey || CFG.DEFAULT_API_KEY;
+  $('apiBase').value = settings.apiBase || '';
   langSelect.value = settings.language || CFG.DEFAULT_LANGUAGE;
   $('verify').checked = settings.verify !== false;
   $('typos').checked = settings.humanTypos !== false;
@@ -94,6 +95,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       : modelSelect.value;
     await storageSet({
       apiKey: $('apiKey').value.trim(),
+      apiBase: $('apiBase').value.trim().replace(/\/+$/, ''),
       model,
       language: langSelect.value,
       typingSpeed: $('speed').value,

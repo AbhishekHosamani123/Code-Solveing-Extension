@@ -26,7 +26,7 @@ const HL_TOKEN_RE = /("""[\s\S]*?"""|'''[\s\S]*?'''|"(?:\\.|[^"\\\n])*"?|'(?:\\.
 function highlight(code, lang) {
   const kw = hlKeywordSet(lang);
   const out = [];
-  let last = 0, m;
+  let last = 0, m, prevSignificant = '';
   HL_TOKEN_RE.lastIndex = 0;
   while ((m = HL_TOKEN_RE.exec(code))) {
     if (m.index > last) out.push([null, code.slice(last, m.index)]);
@@ -37,7 +37,9 @@ function highlight(code, lang) {
     else if (tok.startsWith('//') || tok.startsWith('/*') || tok.startsWith('#')) cls = 'tok-com';
     else if (/\d/.test(c)) cls = 'tok-num';
     else if (kw.has(tok)) cls = 'tok-kw';
+    else if (prevSignificant === 'class') cls = 'tok-cls';
     else if (code[m.index + tok.length] === '(') cls = 'tok-fn';
+    if (/[A-Za-z_]/.test(c) || c === '#') prevSignificant = kw.has(tok) ? tok : 'id';
     out.push([cls, tok]);
     last = m.index + tok.length;
   }
@@ -81,5 +83,15 @@ run('apostrophe-inside-comment', "// don't worry — it's fine\nx = 1", 'javascr
 run('python-numbers', 'x = 0x1F + 3.14\nif x > 10: pass', 'python', [
   ['0x1F', 'tok-num'], ['3.14', 'tok-num'], ['if', 'tok-kw'], ['pass', 'tok-kw'],
 ]);
+
+// Class-name token (teal) directly after the `class` keyword.
+{
+  const parts = highlight('class Solution:\n    def solve(self, a, b):\n        return a + b', 'python');
+  const clsTok = parts.find(p => p[0] === 'tok-cls');
+  assert.ok(clsTok && clsTok[1] === 'Solution', 'expected "Solution" to be tok-cls after `class`');
+  const kwTok = parts.find(p => p[0] === 'tok-kw' && p[1] === 'class');
+  assert.ok(kwTok, 'expected `class` to be tok-kw');
+  console.log('PASS class-name token');
+}
 
 console.log('All highlighter tests passed.');
