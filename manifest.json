@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "CodeSolve AI — Page Chat",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "A floating, draggable chatbot on every page. It reads the page (questions, tasks, code, errors), answers instantly with full code in your language, and can type solutions into the editor.",
   "permissions": ["storage", "activeTab", "scripting", "contextMenus", "system.display"],
   "host_permissions": [
@@ -11,6 +11,12 @@
     "service_worker": "background.js"
   },
   "options_page": "options.html",
+  "commands": {
+    "open-chat": {
+      "suggested_key": { "default": "Alt+Shift+C" },
+      "description": "Open the CodeSolve chat on the current page"
+    }
+  },
   "action": {
     "default_popup": "popup.html",
     "default_title": "CodeSolve AI",
@@ -30,15 +36,21 @@
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "js": ["config.js", "typer.js", "content.js"],
-      "run_at": "document_idle",
+      "js": ["capture-hook.js"],
+      "run_at": "document_start",
+      "world": "MAIN",
       "all_frames": true
     },
     {
       "matches": ["<all_urls>"],
-      "js": ["capture-hook.js"],
+      "js": ["capture-relay.js"],
       "run_at": "document_start",
-      "world": "MAIN",
+      "all_frames": true
+    },
+    {
+      "matches": ["<all_urls>"],
+      "js": ["config.js", "typer.js", "content.js"],
+      "run_at": "document_idle",
       "all_frames": true
     }
   ]

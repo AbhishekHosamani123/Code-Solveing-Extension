@@ -13,8 +13,14 @@ from **Groq**, with complete working code in the language already in play
 - **Drag** it anywhere by its header, **resize** it from the corner grip.
   Position, size, and minimized state persist across pages and sessions.
 - **Minimize** (—) to a small ⚡ bubble; click it to reopen.
+- **Stop button** — while an answer is streaming, the send button becomes a
+  red ⏹ Stop that keeps whatever already arrived.
+- **Alt+Shift+C** opens the chat on the current page from anywhere.
 - The toolbar popup's **Show on all pages** toggle hides/shows it everywhere;
   right-click → **"Ask CodeSolve about this selection"** opens it pre-filled.
+- Follow-up **chips appear under every answer** (⭐ Optimize further, ✂️ Remove
+  comments, 🌍 Convert language, 🧪 Edge cases) — one click continues the
+  conversation about the code just given.
 
 ## Page awareness — no copy-pasting
 
@@ -53,7 +59,7 @@ question.
 
 ## Code answers
 
-Answers render with a language label and two actions:
+Answers render with a language label, **syntax highlighting**, and these actions:
 
 - **Copy** — clipboard, one click.
 - **⌨️ Type** — types the code into the page's editor **character-by-character
@@ -61,7 +67,8 @@ Answers render with a language label and two actions:
   Backspace corrections, per-line indentation normalization). Progress shows
   inline with a Stop button; afterwards the editor is read back and verified.
   Monaco sites (like LeetCode) are driven through a MAIN-world bridge that uses
-  Monaco's own `type` command, since they ignore synthetic edits.
+  Monaco's own `type` command, since they ignore synthetic edits; CodeMirror 6
+  is driven through its own keymap-driven selection for targeted fills.
 
 ## Invisible to the other side during screen sharing
 
@@ -117,6 +124,7 @@ the duration, as with any capture.
 ```
 node --check *.js                    # syntax
 dev-tests/test_api.mjs               # live solve+verify round-trip (writes generated_solution.py)
+dev-tests/test_highlight.mjs         # syntax-highlighter tokenizer sanity tests
 python dev-tests/assert_solution.py  # executes the generated solution against samples
 python -m http.server 8899 --directory dev-tests
                                      # open http://localhost:8899/mock-site.html
@@ -139,20 +147,25 @@ python -m http.server 8899 --directory dev-tests
 ## Files
 
 ```
-manifest.json     MV3 manifest (all-sites content script, permissions)
+manifest.json     MV3 manifest (all-sites content script, permissions, Alt+Shift+C command)
 config.js         defaults, prompts (page-aware chat, solve, verify), model list
-background.js     Groq streaming client (Port), solve + self-check, key test,
-                  Monaco-bridge injection, capture-state coordination, context menus
-typer.js          editor adapters + human-like typing engine
+background.js     Groq streaming client (Port) with abort-on-disconnect, solve + self-check,
+                  key test, Monaco-bridge injection, capture-state coordination, context menus,
+                  keyboard command
+typer.js          editor adapters + human-like typing engine (Monaco bridge, CM6 keymap fills)
 monaco-bridge.js  MAIN-world helper: drives Monaco via its own type command
 capture-hook.js   MAIN-world hook: detects browser screen share/recording and
                   excludes the chatbot's region from tab captures (all frames)
+capture-relay.js  isolated-world relay: forwards capture events from iframes
+                  to the background before the main content script loads
 content.js        the floating chatbot: drag/resize/persist, page-context
-                  builder, streaming chat, code blocks, type-into-editor,
+                  builder, streaming chat (Stop button, throttled render),
+                  highlighted code blocks, follow-up chips, type-into-editor,
                   🪟 private float window, share-exclusion/auto-hide logic
 popup.html/js     show/hide chatbot, open chat here, options
 options.html/js   full settings with live key test
-dev-tests/        mock problem page + live API test + typed-solution artifacts
+dev-tests/        mock problem page + live API test + highlighter test +
+                  typed-solution artifacts
 make_icons.py     regenerates icons/ PNGs
 ```
 

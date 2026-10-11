@@ -70,11 +70,31 @@
         var ed2 = pickEditor();
         if (!ed2) return;
         try {
+          var model2 = ed2.getModel();
+          var sl = Math.max(1, detail.startLine || 1);
+          var el2 = Math.max(sl, detail.endLine || sl);
+          var sc = detail.startCol || 1;
+          var ec = detail.endCol;
+          if (model2) {
+            var lineCount = model2.getLineCount ? model2.getLineCount() : 0;
+            if (lineCount) {
+              if (sl > lineCount) sl = lineCount;
+              if (el2 > lineCount) el2 = lineCount;
+              if (el2 < sl) el2 = sl;
+            }
+            // Default the end to the END of the last line: callers pass line
+            // numbers only, and column 1 would drop the final line's content
+            // from the selection (leaving stale placeholder text behind).
+            if (!ec || ec < 1) {
+              ec = model2.getLineMaxColumn ? model2.getLineMaxColumn(el2) : 1;
+            }
+          }
+          if (!ec || ec < 1) ec = 1;
           var RangeCtor = monaco.Range || (monaco.editor && monaco.editor.Range);
-          var r = RangeCtor ? new RangeCtor(detail.startLine, detail.startCol || 1, detail.endLine, detail.endCol || 1)
-                            : { startLineNumber: detail.startLine, startColumn: detail.startCol||1, endLineNumber: detail.endLine, endColumn: detail.endCol||1 };
+          var r = RangeCtor ? new RangeCtor(sl, sc, el2, ec)
+                            : { startLineNumber: sl, startColumn: sc, endLineNumber: el2, endColumn: ec };
           ed2.setSelection(r);
-          try { ed2.revealLineInCenter(detail.startLine); } catch (e2) {}
+          try { ed2.revealLineInCenter(sl); } catch (e2) {}
           try { ed2.focus(); } catch (e3) {}
         } catch (e4) {}
         document.documentElement.setAttribute('data-cs-monaco-result', 'ok');

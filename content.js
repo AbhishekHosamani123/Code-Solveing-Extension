@@ -504,6 +504,8 @@
     }
     .msg.ai.err { background: #331414; border-color: #7f1d1d; color: #fecaca; }
     .msg.ai.thinking { color: #94a3b8; font-style: italic; }
+    .msg.ai.thinking::after { content: '…'; animation: dots 1.4s steps(1) infinite; }
+    @keyframes dots { 0% { content: ''; } 25% { content: '.'; } 50% { content: '..'; } 75% { content: '...'; } }
     .msg .mtext { white-space: pre-wrap; }
     .msg .mtext b { color: #f8fafc; }
     .msg .mtext code.inline {
@@ -535,6 +537,12 @@
       font-family: Consolas, 'JetBrains Mono', monospace; font-size: .94em;
       line-height: 1.55; white-space: pre; color: #dbe4f5; tab-size: 4;
     }
+    /* Safe, DOM-built syntax highlighting */
+    .codeblock .tok-kw  { color: #c792ea; }
+    .codeblock .tok-str { color: #7ee787; }
+    .codeblock .tok-num { color: #f78c6c; }
+    .codeblock .tok-com { color: #6a7fa8; font-style: italic; }
+    .codeblock .tok-fn  { color: #82aaff; }
     .typestatus { display: flex; align-items: center; gap: 8px; margin: 5px 0 2px;
                   font-size: .82em; color: #94a3b8; }
     .typestatus .bar { flex: 1; height: 5px; background: #0b1120; border-radius: 999px; overflow: hidden; }
@@ -554,6 +562,10 @@
       transition: background .12s ease, border-color .12s ease, transform .12s ease;
     }
     .chip:hover { border-color: #818cf8; background: rgba(129, 140, 248, .18); transform: translateY(-1px); }
+    .chips.disabled { opacity: .45; pointer-events: none; }
+
+    .followups { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 9px; }
+    .followups .chip { font-size: .8em; padding: 4px 11px; }
 
     .inputrow { display: flex; gap: 8px; padding: 8px 13px 13px; flex: none; align-items: flex-end; }
     .chatinput {
@@ -571,6 +583,7 @@
     }
     .send:hover { filter: brightness(1.15); transform: scale(1.05); }
     .send[disabled] { opacity: .5; cursor: default; transform: none; }
+    .send.stop { background: linear-gradient(135deg, #ef4444, #b91c1c); }
 
     /* Window-style resize: right edge, bottom edge, and corner. */
     .rs { position: absolute; z-index: 9; touch-action: none; }
@@ -592,6 +605,25 @@
   let includePage = true;
   let enabledState = true;
   let typingRun = 0;
+
+  // Busy state: the send button becomes a red Stop button while a chat answer
+  // is streaming; during a Solve (not abortable) it is simply disabled.
+  function setBusy(busy, stoppable) {
+    chatBusy = busy;
+    if (!ui) return;
+    if (busy) {
+      ui.sendBtn.classList.toggle('stop', !!stoppable);
+      ui.sendBtn.disabled = !stoppable;
+      ui.sendBtn.textContent = stoppable ? '⏹' : '➤';
+      ui.sendBtn.title = stoppable ? 'Stop generating' : 'Solving…';
+    } else {
+      ui.sendBtn.classList.remove('stop');
+      ui.sendBtn.disabled = false;
+      ui.sendBtn.textContent = '➤';
+      ui.sendBtn.title = 'Send';
+    }
+    ui.chips.classList.toggle('disabled', busy);
+  }
 
   // Screen capture / screen sharing.
   //  - Tab captures of THIS page: the capture-hook cuts the widget's region
@@ -932,7 +964,19 @@
       ui.ctxBtn.classList.toggle('on', includePage);
       chrome.storage.local.set({ csIncludePage: includePage });
     });
-    ui.sendBtn.addEventListener('click', () => sendChat(ui.input.value));
+    ui.sendBtn.addEventListener('click', () => {
+      if (chatBusy) {
+        // Stop: keep whatever already streamed in, finalize immediately.
+        if (ui.__chatPort && ui.__chatFinish) {
+          const partial = ui.__chatAcc && ui.__chatAcc.text;
+          // With partial text: append a marker (rendered as italics). Without:
+          // plain status line — never saved into history.
+          ui.__chatFinish(partial ? partial + '\n\n_(stopped)_' : '⏹ Stopped.', { save: !!partial, stopped: true });
+        }
+        return;
+      }
+      sendChat(ui.input.value);
+    });
     ui.input.addEventListener('keydown', e => {
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
@@ -1171,8 +1215,8 @@
   }
 
   function inlineFormat(target, text) {
-    // Minimal, injection-safe: **bold** and `inline code` → styled spans.
-    const re = /(\*\*[^*]+\*\*|`[^`\n]+`)/g;
+    // Minimal, injection-safe: **bold**, *italic* and `inline code` → styled spans.
+    const re = /(\*\*[^*]+\*\*|`[^`\n]+`|\*[^*\n`]+\*)/g;
     let last = 0, m;
     while ((m = re.exec(text))) {
       if (m.index > last) target.appendChild(document.createTextNode(text.slice(last, m.index)));
@@ -1181,15 +1225,98 @@
         const b = document.createElement('b');
         b.textContent = tok.slice(2, -2);
         target.appendChild(b);
-      } else {
+      } else if (tok.startsWith('`')) {
         const c = document.createElement('code');
         c.className = 'inline';
         c.textContent = tok.slice(1, -1);
         target.appendChild(c);
+      } else {
+        const em = document.createElement('em');
+        em.textContent = tok.slice(1, -1);
+        target.appendChild(em);
       }
       last = m.index + tok.length;
     }
     if (last < text.length) target.appendChild(document.createTextNode(text.slice(last)));
+  }
+
+  // ---- Code-block syntax highlighting --------------------------------------
+  // Injection-safe: every token becomes a span with textContent, nothing is
+  // ever parsed as HTML. Regex order matters: strings/comments first, then
+  // numbers/identifiers.
+  const HL_KEYWORDS = {
+    python: 'and as assert async await break class continue def del elif else except False finally for from global if import in is lambda None nonlocal not or pass raise return True try while with yield match case self print'.split(' '),
+    clike: ('abstract as base bool break byte case catch char class const constructor continue decimal default delegate do double else enum event explicit extern false finally fixed float for foreach get goto if implicit in int interface internal is lock long namespace new null object operator out override params partial private protected public readonly record ref return sbyte sealed set short sizeof stackalloc static string struct switch this throw true try typeof uint ulong unchecked unsafe ushort using value var virtual void volatile where while').split(' '),
+    js: 'async await break case catch class const continue debugger default delete do else export extends false finally for from function get if import in instanceof let new null of return set static super switch this throw true try typeof undefined var void while with yield'.split(' '),
+    go: 'break case chan const continue default defer else fallthrough for func go goto if import interface map package range return select struct switch type var nil true false make new len cap append copy delete panic recover'.split(' '),
+    rust: 'as async await break const continue crate dyn else enum extern false fn for if impl in let loop match mod move mut pub ref return self Self static struct super trait true type unsafe use where while'
+  };
+  HL_KEYWORDS.rust = HL_KEYWORDS.rust.split(' ');
+
+  function hlKeywordSet(lang) {
+    const l = String(lang || '').toLowerCase();
+    if (/py|python/.test(l)) return new Set(HL_KEYWORDS.python);
+    if (/js|javascript|ts|typescript|json/.test(l)) return new Set(HL_KEYWORDS.js);
+    if (/go|golang/.test(l)) return new Set(HL_KEYWORDS.go);
+    if (/rust|^rs$/.test(l)) return new Set(HL_KEYWORDS.rust);
+    if (/c\+\+|cpp|c#|csharp|java|(^|\s)c(\s|$)/.test(l)) return new Set(HL_KEYWORDS.clike);
+    return new Set([...HL_KEYWORDS.clike, ...HL_KEYWORDS.js]);
+  }
+
+  const HL_TOKEN_RE = /("""[\s\S]*?"""|'''[\s\S]*?'''|"(?:\\.|[^"\\\n])*"?|'(?:\\.|[^'\\\n])*'?|`(?:\\.|[^`\\])*`?|\/\/[^\n]*|#[^\n]*|\/\*[\s\S]*?(?:\*\/|$)|\b\d[\w.]*\b|\b[A-Za-z_]\w*\b)/g;
+
+  function highlightCode(el, code, lang) {
+    const kw = hlKeywordSet(lang);
+    const push = (cls, s) => {
+      if (!s) return;
+      if (!cls) { el.appendChild(document.createTextNode(s)); return; }
+      const sp = document.createElement('span');
+      sp.className = cls;
+      sp.textContent = s;
+      el.appendChild(sp);
+    };
+    let last = 0, m;
+    HL_TOKEN_RE.lastIndex = 0;
+    while ((m = HL_TOKEN_RE.exec(code))) {
+      if (m.index > last) push(null, code.slice(last, m.index));
+      const tok = m[0];
+      const c = tok[0];
+      let cls = null;
+      if (c === '"' || c === "'" || c === '`') cls = 'tok-str';
+      else if (tok.startsWith('//') || tok.startsWith('/*') || tok.startsWith('#')) cls = 'tok-com';
+      else if (/\d/.test(c)) cls = 'tok-num';
+      else if (kw.has(tok)) cls = 'tok-kw';
+      else if (code[m.index + tok.length] === '(') cls = 'tok-fn';
+      push(cls, tok);
+      last = m.index + tok.length;
+    }
+    if (last < code.length) push(null, code.slice(last));
+  }
+
+  // Contextual follow-up shortcuts under an answer (chips that send a chat
+  // message referring to the answer just given).
+  function addFollowupChips(aiEl, answerText) {
+    if (!aiEl || !aiEl.isConnected) return;
+    const hasCode = /```/.test(answerText);
+    const row = document.createElement('div');
+    row.className = 'followups';
+    const mk = (label, q) => {
+      const b = document.createElement('button');
+      b.className = 'chip';
+      b.textContent = label;
+      b.addEventListener('click', () => sendChat(q));
+      row.appendChild(b);
+    };
+    if (hasCode) {
+      mk('⭐ Optimize further', 'Optimize the code you just gave — better complexity if possible and cleaner code. Return the complete updated version and briefly say what changed.');
+      mk('✂️ Remove comments', 'Remove all comments from the code you just gave and return the complete updated version.');
+      mk('🌍 Convert language', 'Convert the code you just gave to a different language — pick the closest sensible alternative, return the full converted code, and name the language you chose.');
+      mk('🧪 Edge cases', 'List the tricky edge cases for this problem and how the code you just gave handles each one.');
+    } else {
+      mk('🧪 Edge cases', 'List the tricky edge cases for this problem and how a correct solution should handle them.');
+      mk('💡 Give the code', 'Now give the complete working code for this problem in one code block.');
+    }
+    aiEl.appendChild(row);
   }
 
   function inferTargetName(code) {
@@ -1263,7 +1390,9 @@
 
     const pre = document.createElement('pre');
     const codeEl = document.createElement('code');
-    codeEl.textContent = code;
+    const langName = lang || sniffLanguage(code) || '';
+    if (code.length <= 24000) highlightCode(codeEl, code, langName);
+    else codeEl.textContent = code;
     pre.appendChild(codeEl);
 
     wrap.appendChild(head);
@@ -1291,13 +1420,22 @@
       cur.className = 'cursor';
       body.appendChild(cur);
     }
-    scrollToBottom();
+    if (opts.scroll !== false) scrollToBottom();
   }
 
   // -------------------------------------------------------------- actions
 
   function resetTopic() {
     ensureUI();
+    // Cancel an in-flight stream first: otherwise the pending answer would
+    // silently re-enter the (just-wiped) history when it completed.
+    if (ui.__chatPort) {
+      try { ui.__chatPort.disconnect(); } catch { /* already closed */ }
+      ui.__chatPort = null;
+      ui.__chatAcc = null;
+      ui.__chatFinish = null;
+    }
+    setBusy(false, false);
     // Clear both the model's history and the on-screen messages, then
     // restore the helpful empty-state hint.
     chatHistory = [];
@@ -1323,48 +1461,84 @@
     } catch { chatHistory = []; }
   }
 
+  function isNearBottom() {
+    const m = ui.msgs;
+    return m.scrollHeight - m.scrollTop - m.clientHeight < 90;
+  }
+
+  // Throttled streaming render: rebuild the bubble at most ~10x/second and
+  // only auto-scroll when the user is already at the bottom.
+  function scheduleRender(aiEl, acc) {
+    if (aiEl.__renderPending) return;
+    aiEl.__renderPending = true;
+    setTimeout(() => {
+      aiEl.__renderPending = false;
+      if (!aiEl.isConnected || !acc.text) return; // nothing streamed yet — keep the status label
+      renderAI(aiEl, acc.text, { streaming: true, scroll: isNearBottom() });
+    }, 90);
+  }
+
   async function sendChat(raw) {
     const text = (raw || '').trim();
     if (!text || chatBusy) return;
     ensureUI();
-    chatBusy = true;
-    ui.sendBtn.disabled = true;
+    setBusy(true, true);
 
     addMsgEl('user', text);
     ui.input.value = '';
     ui.input.style.height = 'auto';
 
-    const aiEl = addMsgEl('ai', '', 'thinking');
-    aiEl.textContent = 'Reading this page (including embedded panels)…';
+    const aiEl = addMsgEl('ai', 'Reading this page (including embedded panels)…', 'thinking');
 
     const acc = { text: '' };
     const port = chrome.runtime.connect({ name: 'chat-stream' });
     ui.__chatPort = port;
+    ui.__chatAcc = acc;
 
-    port.onMessage.addListener(m => {
-      if (m.chunk) {
-        acc.text += m.chunk;
-        if (aiEl.classList.contains('thinking')) aiEl.classList.remove('thinking');
-        renderAI(aiEl, acc.text, { streaming: true });
-      } else if (m.done) {
-        finish(acc.text || '(empty response)');
-      } else if (m.error) {
-        aiEl.classList.add('err');
-        finish('⚠ ' + m.error);
-      }
-    });
-
-    function finish(finalText) {
+    let finished = false;
+    const finish = (finalText, opts = {}) => {
+      if (finished) return;
+      finished = true;
       try { port.disconnect(); } catch { /* already closed */ }
-      ui.__chatPort = null;
-      chatBusy = false;
-      ui.sendBtn.disabled = false;
+      if (ui.__chatPort === port) { ui.__chatPort = null; ui.__chatAcc = null; ui.__chatFinish = null; }
+      setBusy(false, false);
+      aiEl.classList.remove('thinking');
+      if (!opts.save) {
+        if (opts.stopped) {
+          aiEl.textContent = finalText;
+        } else {
+          aiEl.classList.add('err');
+          aiEl.textContent = finalText;
+        }
+        return;
+      }
       chatHistory.push({ role: 'user', content: text });
       chatHistory.push({ role: 'assistant', content: finalText });
       if (chatHistory.length > 30) chatHistory = chatHistory.slice(-30);
       saveChatHistory();
       renderAI(aiEl, finalText);
-    }
+      addFollowupChips(aiEl, finalText);
+    };
+    ui.__chatFinish = finish;
+
+    port.onMessage.addListener(m => {
+      if (m.chunk) {
+        acc.text += m.chunk;
+        aiEl.classList.remove('thinking');
+        scheduleRender(aiEl, acc);
+      } else if (m.thinking) {
+        // Reasoning model is emitting thoughts before any text.
+        aiEl.classList.add('thinking');
+        aiEl.textContent = 'Thinking…';
+      } else if (m.done) {
+        finish(acc.text || '(empty response)', { save: true });
+      } else if (m.error) {
+        // Keep any partial answer that already streamed in; errors alone are
+        // never written to the conversation history.
+        if (acc.text) finish(acc.text + '\n\n⚠ ' + m.error, { save: true });
+        else finish('⚠ ' + m.error, { save: false });
+      }
+    });
 
     try {
       const context = await buildPageContext(includePage);
@@ -1375,15 +1549,14 @@
         context
       });
     } catch (e) {
-      finish('⚠ Could not read the page: ' + ((e && e.message) || e));
+      finish('⚠ Could not read the page: ' + ((e && e.message) || e), { save: false });
     }
   }
 
   function solveFlow() {
     if (chatBusy) return;
     ensureUI();
-    chatBusy = true;
-    ui.sendBtn.disabled = true;
+    setBusy(true, false);
 
     addMsgEl('user', '🚀 Solve this problem');
 
@@ -1397,6 +1570,14 @@
       const language = detectLanguage() || settings.language || CFG.DEFAULT_LANGUAGE;
 
       const aiEl = addMsgEl('ai', `Solving${language ? ' (' + language + ')' : ''}… reading the page and your editor.`, 'thinking');
+      // Live progress: an elapsed-seconds ticker while the model works.
+      const t0 = Date.now();
+      const baseLabel = aiEl.textContent;
+      const ticker = setInterval(() => {
+        if (aiEl.isConnected && aiEl.classList.contains('thinking')) {
+          aiEl.textContent = `${baseLabel.replace(/….*$/, '…')} ${Math.round((Date.now() - t0) / 1000)}s elapsed`;
+        }
+      }, 1000);
 
       chrome.runtime.sendMessage(
         {
@@ -1404,11 +1585,12 @@
           problem: cap(problem, 22000),
           language,
           platform: SITE,
-          starterCode: readEditorText()
+          // A large repo file must not blow the solve prompt — cap it.
+          starterCode: cap(readEditorText(), 6000)
         },
         resp => {
-          chatBusy = false;
-          ui.sendBtn.disabled = false;
+          clearInterval(ticker);
+          setBusy(false, false);
           aiEl.classList.remove('thinking');
 
           if (chrome.runtime.lastError) {
@@ -1441,6 +1623,7 @@
             v.textContent = (resp.verdict.passed === false ? '⚠ Self-check: ' : '✓ Self-check: ') + resp.verdict.note.slice(0, 240);
             aiEl.appendChild(v);
           }
+          addFollowupChips(aiEl, full);
           scrollToBottom();
         }
       );
@@ -1553,10 +1736,15 @@
       note.textContent = `⚠ Typing stopped at ${Math.round((res.typed / Math.max(1, res.total)) * 100)}%.`;
     } else if (useRange) {
       // Range-mode verification checks the range content, not the whole file.
+      // The typed snippet may span MORE lines than the placeholder did, so
+      // read snippet.length lines starting at range.startLine — not the old
+      // range height (that would compare the wrong window and report false
+      // "range differs" warnings).
       let ok = null;
       try {
         const lines = (adapter.readLines ? adapter.readLines() : (adapter.readAll() || '').split('\n'));
-        const seg = lines.slice(plan.range.startLine - 1, plan.range.endLine).join('\n');
+        const snipLineCount = plan.snippet.split('\n').length;
+        const seg = lines.slice(plan.range.startLine - 1, plan.range.startLine - 1 + snipLineCount).join('\n');
         const tight = s => String(s||'').split('\n').map(l => l.replace(/[ \t]+$/, '')).join('\n').trim();
         const segNorm = tight(seg), snipNorm = tight(plan.snippet);
         if (segNorm && snipNorm) ok = segNorm.includes(snipNorm.slice(0, Math.min(80, snipNorm.length))) || snipNorm === segNorm;

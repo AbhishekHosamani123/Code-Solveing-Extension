@@ -130,24 +130,54 @@
         const t = normalize(content.textContent);
         return t ? t.split('\n') : [];
       },
-      selectRange(startLine, endLine) {
+      async selectRange(startLine, endLine) {
         try {
           const els = root.querySelectorAll('.cm-content .cm-line');
           if (!els.length || startLine < 1 || endLine < startLine) return false;
           const s = els[Math.max(0, startLine - 1)], e = els[Math.min(els.length - 1, endLine - 1)];
           if (!s || !e) return false;
-          const range = document.createRange();
-          range.setStartBefore(s); range.setEndAfter(e);
-          const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(range);
-          content.focus(); return true;
+          content.focus();
+          // CodeMirror enforces its OWN state selection — a DOM range set
+          // programmatically is reset on the next selectionchange. Move its
+          // caret with the same synthetic keystrokes its keymap handles:
+          // Mod-A (select all) → ArrowLeft (collapse to doc start) → down to
+          // the start line → line-end → extend down → line-end.
+          const key = (k, opts = {}) => content.dispatchEvent(new KeyboardEvent('keydown', {
+            key: k, code: k, bubbles: true, cancelable: true, ...opts
+          }));
+          dispatchSelectAll(content);
+          key('ArrowLeft');
+          for (let i = 1; i < startLine; i++) key('ArrowDown');
+          // Extend (Shift) from the line start: line end, then down through
+          // the span, then force the head to the end line's end.
+          key('End', { shiftKey: true });
+          for (let i = startLine; i < endLine; i++) key('ArrowDown', { shiftKey: true });
+          key('End', { shiftKey: true });
+          await sleep(30);
+          // Verify the editor actually adopted a non-collapsed selection
+          // anchored inside the target span (guards keymap-less CM6 setups).
+          const sel = window.getSelection();
+          const inEl = el => !!(el && sel.anchorNode && (el === sel.anchorNode || el.contains(sel.anchorNode)));
+          return !!(sel && sel.rangeCount && !sel.isCollapsed && (inEl(s) || inEl(e)));
         } catch { return false; }
       },
       replaceSelection(text) {
+        const t = String(text || '');
         const sel = window.getSelection();
-        if (sel && sel.rangeCount) { sel.deleteContents(); sel.collapseToEnd(); }
+        const inRoot = !!(sel && sel.rangeCount && root.contains(sel.anchorNode));
         content.focus();
-        try { document.execCommand('insertText', false, String(text || '')); } catch {}
-        content.dispatchEvent(new InputEvent('input', { bubbles: true, data: String(text || ''), inputType: 'insertText' }));
+        // Editors (incl. CodeMirror) handle execCommand('insertText') exactly
+        // like typing — it replaces the current selection natively. Only fall
+        // back to direct DOM mutation when the editor ignored the command.
+        let ok = false;
+        try { ok = document.execCommand('insertText', false, t); } catch { ok = false; }
+        if (!ok && inRoot) {
+          const range = sel.getRangeAt(0);
+          range.deleteContents();
+          range.collapse(false);
+          if (t) range.insertNode(document.createTextNode(t));
+          content.dispatchEvent(new InputEvent('input', { bubbles: true, data: t, inputType: 'insertText' }));
+        }
         return true;
       }
     };
@@ -382,19 +412,19 @@
         return true;
       },
       replaceSelection(text) {
+        const t = String(text || '');
         const sel = window.getSelection();
-        if (sel && sel.rangeCount && root.contains(sel.anchorNode)) {
-          sel.deleteContents(); sel.collapseToEnd();
-          try { document.execCommand('insertText', false, String(text || '')); } catch {}
-          return true;
+        const inRoot = !!(sel && sel.rangeCount && root.contains(sel.anchorNode));
+        if (ta) ta.focus();
+        let ok = false;
+        try { ok = document.execCommand('insertText', false, t); } catch { ok = false; }
+        if (!ok && inRoot) {
+          const range = sel.getRangeAt(0);
+          range.deleteContents();
+          range.collapse(false);
+          if (t) range.insertNode(document.createTextNode(t));
         }
-        if (ta) {
-          const s = ta.selectionStart ?? ta.value.length, e = ta.selectionEnd ?? s;
-          if (ta.setRangeText) ta.setRangeText(String(text || ''), s, e, 'end'); else ta.value = ta.value.slice(0, s) + String(text || '') + ta.value.slice(e);
-          ta.dispatchEvent(new InputEvent('input', { bubbles: true, data: String(text || ''), inputType: 'insertText' }));
-          return true;
-        }
-        return focusedInsertUnit(ta, String(text || ''));
+        return true;
       }
     };
   }
@@ -481,11 +511,19 @@
         } catch { return false; }
       },
       replaceSelection(text) {
+        const t = String(text || '');
         const sel = window.getSelection();
-        if (sel && sel.rangeCount && el.contains(sel.anchorNode)) { sel.deleteContents(); sel.collapseToEnd(); }
+        const inRoot = !!(sel && sel.rangeCount && el.contains(sel.anchorNode));
         el.focus();
-        try { document.execCommand('insertText', false, String(text || '')); } catch {}
-        el.dispatchEvent(new InputEvent('input', { bubbles: true, data: String(text || ''), inputType: 'insertText' }));
+        let ok = false;
+        try { ok = document.execCommand('insertText', false, t); } catch { ok = false; }
+        if (!ok && inRoot) {
+          const range = sel.getRangeAt(0);
+          range.deleteContents();
+          range.collapse(false);
+          if (t) range.insertNode(document.createTextNode(t));
+          el.dispatchEvent(new InputEvent('input', { bubbles: true, data: t, inputType: 'insertText' }));
+        }
         return true;
       }
     };
@@ -885,7 +923,7 @@
     }
     await sleep(20);
     let selected = false;
-    try { selected = !!adapter.selectRange(range.startLine, range.endLine); } catch {}
+    try { selected = await adapter.selectRange(range.startLine, range.endLine); } catch {}
     await sleep(50);
     if (!selected) {
       // Fallback: legacy full-type — still strictly better than silent failure.

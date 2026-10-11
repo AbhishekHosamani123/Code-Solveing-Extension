@@ -192,7 +192,7 @@ function friendlyError(e) {
   const msg = (e && e.message) || '';
   if (status === 401 || status === 403) return 'Groq rejected the API key (invalid or no access). Update it in Options.';
   if (status === 429) return 'Groq rate limit reached. Wait a minute and retry, or switch models in Options.';
-  if (status === 413 || /context length|too large|too long|maximum context|too many tokens|request too large/i.test(msg)) return 'This request got too big for the model (long page + long conversation). It auto-retries with a tighter context — if it still happens, click 🧹 Clear to start a fresh topic.';
+  if (status === 413 || /context length|too large|too long|maximum context|too many tokens|request too large/i.test(msg)) return 'This request got too big for the model (long page + long conversation). It retries once with a trimmed problem — if it still happens, click 🧹 Clear to start a fresh topic.';
   if (/failed to fetch|networkerror/i.test(msg)) return 'Network error reaching Groq. Check your connection.';
   return `Groq error: ${msg.slice(0, 300) || 'unknown'}`;
 }
@@ -244,6 +244,11 @@ async function solve(payload) {
       return result;
     } catch (e) {
       lastError = e;
+      // A huge problem can exceed the model's context even at the smallest
+      // tier. Retry once with a trimmed problem before giving up.
+      if (isContextLengthError(e) && !payload.__csTrimmed && String(payload.problem || '').length > 9000) {
+        return solve({ ...payload, problem: payload.problem.slice(0, 9000), __csTrimmed: true });
+      }
       if (!isRetryableModel(e)) break;
     }
   }
@@ -332,14 +337,15 @@ function buildChatMessages(payload, budgetOverride) {
   return messages;
 }
 
-async function streamGroq(apiKey, { model, messages, temperature, maxTokens, reasoningEffort }, onChunk) {
+async function streamGroq(apiKey, { model, messages, temperature, maxTokens, reasoningEffort, signal }, onChunk, onThinking) {
   const body = { model, messages, temperature, max_completion_tokens: maxTokens, stream: true };
   if (reasoningEffort && isReasoningModel(model)) body.reasoning_effort = reasoningEffort;
 
   const res = await fetch(`${CFG.GROQ_BASE}/chat/completions`, {
     method: 'POST',
     headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify(body)
+    body: JSON.stringify(body),
+    signal
   });
   if (!res.ok) {
     let detail = '';
@@ -370,8 +376,10 @@ async function streamGroq(apiKey, { model, messages, temperature, maxTokens, rea
       if (data === '[DONE]') return;
       try {
         const json = JSON.parse(data);
-        const delta = json.choices && json.choices[0] && json.choices[0].delta && json.choices[0].delta.content;
-        if (delta) onChunk(delta);
+        const delta = json.choices && json.choices[0] && json.choices[0].delta;
+        if (!delta) continue;
+        if (delta.content) onChunk(delta.content);
+        else if (delta.reasoning && onThinking) onThinking(); // reasoning models emit thoughts before text
       } catch { /* partial JSON line — ignore */ }
     }
   }
@@ -391,6 +399,21 @@ async function streamChatToPort(port, payload) {
     return;
   }
 
+  // Abort the upstream request as soon as the widget goes away (Stop button,
+  // Clear, reload) — no wasted tokens streaming into a dead port.
+  const abort = new AbortController();
+  let closed = false;
+  let sentOutput = false; // once real answer text reached the UI, never retry: a second attempt would append a duplicate answer
+  let thinkingSent = false;
+  port.onDisconnect.addListener(() => {
+    closed = true;
+    try { abort.abort(); } catch { /* ignore */ }
+  });
+  const send = obj => {
+    if (closed) return;
+    try { port.postMessage(obj); } catch { closed = true; }
+  };
+
   // Try progressively smaller prompt budgets when the model says the
   // request is too large, so 1-2 long turns + a big page never hard-fails.
   // Each attempt rebuilds messages with a tighter budget.
@@ -399,6 +422,7 @@ async function streamChatToPort(port, payload) {
   let lastError = null;
 
   for (const budget of budgetTiers) {
+    if (closed) return;
     const messages = buildChatMessages(payload, budget);
     // Keep input + output inside even the smallest fallback window (32k).
     // Smaller budget → proportionally smaller output cap.
@@ -411,38 +435,48 @@ async function streamChatToPort(port, payload) {
           messages,
           temperature: 0.4,
           maxTokens,
-          reasoningEffort: 'medium'
-        }, chunk => { port.postMessage({ chunk }); });
-        port.postMessage({ done: true, model });
+          reasoningEffort: 'medium',
+          signal: abort.signal
+        }, chunk => { sentOutput = true; send({ chunk }); }, () => {
+          if (!thinkingSent) { thinkingSent = true; send({ thinking: true }); }
+        });
+        send({ done: true, model });
         return;
       } catch (e) {
         lastError = e;
+        if (closed) return; // user closed/stopped — nothing left to say
+        if (sentOutput) {
+          // Partial answer already on screen; report the failure so the UI
+          // can keep the partial text instead of duplicating a retry.
+          send({ error: friendlyError(e) });
+          return;
+        }
         if (isContextLengthError(e)) break; // same model won't help — shrink prompt and retry
         if (!isRetryableModel(e)) {
-          port.postMessage({ error: friendlyError(e) });
+          send({ error: friendlyError(e) });
           return;
         }
         // rate-limit / model not available → try next model at same budget
       }
     }
 
+    if (closed || sentOutput) return;
     if (!lastError || !isContextLengthError(lastError)) {
       // Exhausted models without a context-length error — nothing more to shrink.
       break;
     }
     // Context-length error: notify once before the smaller retry so the
     // user sees progress instead of a hang, then loop to the next budget.
-    if (budget === null) {
-      try { port.postMessage({ chunk: '\n\n_…request was large — retrying with a tighter context…_\n\n' }); } catch { /* port closed */ }
-    }
+    if (budget === null) send({ chunk: '\n\n_…request was large — retrying with a tighter context…_\n\n' });
   }
 
+  if (closed) return;
   if (lastError && isContextLengthError(lastError)) {
-    port.postMessage({ error: 'The page + conversation is still too large even after auto-trimming. Click 🧹 Clear to start a fresh topic, then ask again (your last question is preserved — re-paste it).' });
+    send({ error: 'The page + conversation is still too large even after auto-trimming. Click 🧹 Clear to start a fresh topic, then ask again (your last question is preserved — re-paste it).' });
   } else if (lastError) {
-    port.postMessage({ error: friendlyError(lastError) });
+    send({ error: friendlyError(lastError) });
   } else {
-    port.postMessage({ error: 'Groq is rate-limiting every available model right now. Wait a minute and retry.' });
+    send({ error: 'Groq is rate-limiting every available model right now. Wait a minute and retry.' });
   }
 }
 
@@ -567,6 +601,17 @@ async function ensureContentScript(tabId) {
     }
   }
 }
+
+// Alt+Shift+C — open the chat on the active tab (manifest "commands").
+chrome.commands.onCommand.addListener(async command => {
+  if (command !== 'open-chat') return;
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tab || !tab.id) return;
+    await ensureContentScript(tab.id);
+    try { await chrome.tabs.sendMessage(tab.id, { type: 'SHOW_CHATBOT' }); } catch { /* not injectable */ }
+  } catch { /* ignore */ }
+});
 
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   if (!tab || !tab.id) return;
