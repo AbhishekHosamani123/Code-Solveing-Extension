@@ -3,3 +3,4 @@ __pycache__/
 .zcode/
 secrets.js
 dev-tests/*.png
+dev-tests/.chrome-logs/
