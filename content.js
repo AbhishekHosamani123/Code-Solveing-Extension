@@ -680,10 +680,77 @@
     ui.privEl.classList.toggle('hidden', !on);
   }
 
+  // Keep the widget glued to the top of the paint order. Most pages leave
+  // stacking to CSS order and the host's huge z-index suffices; but a growing
+  // class of sites pin a full-viewport portal/overlay/modal-layer (fixed,
+  // non-auto z-index) — or wrap the page in one — that can end up above the
+  // host, which would make the widget look "not there". Walk the host's
+  // ancestor chain and, when any element between the host and the root has a
+  // numeric z-index, re-append the host at the direct child of the topmost such
+  // layer (children always paint above their parent's background/border and a
+  // sibling layer allows a still-higher sibling to win) and pin its z-index
+  // above every numeric sibling/ancestor layer. Cheap bookkeeping, no layout
+  // reads, so it can run on every safety-net tick.
+  function liftHostOverOverlays() {
+    if (!ui || !ui.host) return;
+    const host = ui.host;
+    if (typeof host.getRootNode !== 'function') return;
+    const root = host.getRootNode();
+    if (!root) return;
+
+    // Pass 1: if any ancestor between the host and the tree root participates
+    // in a positive stacking context, re-home the host as the LAST child of
+    // that topmost layer so its paint order (and our z-index pin) wins.
+    // Otherwise keep it a direct child of <html>, re-appended last so no
+    // later-inserted page sibling can out-paint it.
+    let node = host.parentNode;
+    let topLayer = null;
+    while (node && node !== root) {
+      if (node.nodeType === 1 && node !== document.documentElement && node !== document.body) {
+        const cs = getComputedStyle(node);
+        if (cs && cs.position && cs.zIndex && cs.zIndex !== 'auto') {
+          topLayer = node;
+          break;
+        }
+      }
+      node = node.parentNode;
+    }
+    if (topLayer) {
+      if (host.parentNode !== topLayer) {
+        try { topLayer.appendChild(host); } catch { /* ignore */ }
+      } else if (host !== topLayer.lastElementChild) {
+        try { topLayer.appendChild(host); } catch { /* ignore */ }
+      }
+    } else if (document.documentElement && host.parentNode !== document.documentElement) {
+      try { document.documentElement.appendChild(host); } catch { /* ignore */ }
+    } else if (document.documentElement && host !== document.documentElement.lastElementChild) {
+      try { document.documentElement.appendChild(host); } catch { /* ignore */ }
+    }
+
+    // Pass 2: pin the host above every numeric layer now in its paint path.
+    let p = host.parentNode;
+    let next = 3000;
+    const seen = new Set();
+    while (p && p !== root && !seen.has(p)) {
+      seen.add(p);
+      if (p.nodeType === 1) {
+        const cs = getComputedStyle(p);
+        if (cs && cs.zIndex && cs.zIndex !== 'auto') {
+          const z = parseInt(cs.zIndex, 10);
+          if (!isNaN(z) && z >= next) next = z + 1;
+        }
+      }
+      p = p.parentNode;
+    }
+    const want = String(Math.min(next, WIDGET_Z));
+    if (host.style && host.style.zIndex !== want) host.style.zIndex = want;
+  }
+
   function updateVisibility() {
     if (!ui) return;
     if (floated && !canShow()) closeFloat(false);
     ui.host.style.display = canShow() ? '' : 'none';
+    liftHostOverOverlays();
     syncExcludeBox();
   }
 
@@ -692,6 +759,15 @@
       chrome.runtime.sendMessage({ type: 'CAPTURE_REPORT', active: !!active, hideAll: hideAll !== false }, () => void chrome.runtime.lastError);
     } catch { /* extension context gone */ }
   }
+
+  // The host is fixed under <html>; WIDGET_Z sits deliberately at the top of
+  // the CSS z-index range so the chat normally paints over page chrome. Some
+  // sites pin a full-screen "portal / overlay / modal-root" layer — or wrap the
+  // page in one — that paints ABOVE such a host (several UI kits use the
+  // absolute maximum 2147483647 for modals): the classic "extension looks
+  // invisible on this site" failure. liftHostOverOverlays() keeps the widget on
+  // top of those layers.
+  const WIDGET_Z = 2147483647;
 
   const MIN_W = 320, MIN_H = 380;
 
@@ -1940,6 +2016,21 @@
       }
     } catch { /* page unloading */ }
   }, 2500);
+
+  // Re-evaluate on tab return / bfcache restore: a page restored from the
+  // back-forward cache, or one that was hidden mid-session, can come back with
+  // its widget re-ordered below a page layer or with an overlay in place that
+  // was not there when first mounted. ensureUI() re-attaches if needed and
+  // updateVisibility() re-applies the enabled + capture state.
+  function rehideCheck() {
+    if (!IS_TOP) return;
+    if (!ui) ensureUI();
+    updateVisibility();
+  }
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') rehideCheck();
+  });
+  window.addEventListener('pageshow', rehideCheck);
 
   (async () => {
     if (!IS_TOP) return; // frames only participate in the context handshake

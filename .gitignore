@@ -2,3 +2,4 @@ __pycache__/
 *.pyc
 .zcode/
 secrets.js
+dev-tests/*.png
